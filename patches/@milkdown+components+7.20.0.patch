@@ -1,0 +1,26 @@
+diff --git a/node_modules/@milkdown/components/lib/image-block/index.js b/node_modules/@milkdown/components/lib/image-block/index.js
+index 921b7aa..59338f8 100644
+--- a/node_modules/@milkdown/components/lib/image-block/index.js
++++ b/node_modules/@milkdown/components/lib/image-block/index.js
+@@ -314,7 +314,7 @@ const ImageInput = defineComponent({
+       ), /* @__PURE__ */ h("label", { class: "uploader", for: uuid.value }, /* @__PURE__ */ h(Icon, { icon: uploadButton })), /* @__PURE__ */ h("span", { class: "text", onClick: () => {
+         var _a2;
+         return (_a2 = linkInputRef.value) == null ? void 0 : _a2.focus();
+-      } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
++      } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment$1, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
+         "img",
+         {
+           src: currentLink.value,
+diff --git a/node_modules/@milkdown/components/lib/image-inline/index.js b/node_modules/@milkdown/components/lib/image-inline/index.js
+index 7654da3..70a3dd1 100644
+--- a/node_modules/@milkdown/components/lib/image-inline/index.js
++++ b/node_modules/@milkdown/components/lib/image-inline/index.js
+@@ -198,7 +198,7 @@ const ImageInput = defineComponent({
+       ), /* @__PURE__ */ h("label", { class: "uploader", for: uuid.value }, /* @__PURE__ */ h(Icon, { icon: uploadButton })), /* @__PURE__ */ h("span", { class: "text", onClick: () => {
+         var _a2;
+         return (_a2 = linkInputRef.value) == null ? void 0 : _a2.focus();
+-      } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
++      } }, uploadPlaceholderText))), currentLink.value && /* @__PURE__ */ h(Fragment$1, null, /* @__PURE__ */ h("div", { class: "image-preview" }, /* @__PURE__ */ h(
+         "img",
+         {
+           src: currentLink.value,

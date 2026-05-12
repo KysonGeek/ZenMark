@@ -18,3 +18,14 @@ sudo systemctl reload caddy
 ```
 
 See `docs/superpowers/specs/` for design and `docs/superpowers/plans/` for the build plan.
+
+## Caddy config
+
+```
+md.qixin.ch {
+    root * /opt/app/md/dist
+    encode gzip zstd
+    try_files {path} /index.html
+    file_server
+}
+```

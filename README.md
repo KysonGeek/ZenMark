@@ -13,8 +13,10 @@ npm run dev
 
 ```
 npm run build
-# Caddy at /etc/caddy/sites/md.qixin.ch.conf serves /opt/app/md/dist
-sudo systemctl reload caddy
+# Caddy at /etc/caddy/sites/md.qixin.ch.conf serves /opt/app/md/dist.
+# Use restart (not reload) — the global Caddyfile has `admin off`,
+# which disables the admin API that `systemctl reload caddy` depends on.
+sudo systemctl restart caddy
 ```
 
 See `docs/superpowers/specs/` for design and `docs/superpowers/plans/` for the build plan.

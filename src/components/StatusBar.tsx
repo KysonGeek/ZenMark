@@ -5,12 +5,23 @@ interface Props {
   savedAt: number | null
   wordCount: number
   theme: Theme
+  sourceMode: boolean
   onToggleTheme: () => void
   onToggleSidebar: () => void
+  onToggleSource: () => void
   onExport: () => void
 }
 
-export function StatusBar({ savedAt, wordCount, theme, onToggleTheme, onToggleSidebar, onExport }: Props) {
+export function StatusBar({
+  savedAt,
+  wordCount,
+  theme,
+  sourceMode,
+  onToggleTheme,
+  onToggleSidebar,
+  onToggleSource,
+  onExport,
+}: Props) {
   const [, setTick] = useState(0)
 
   useEffect(() => {
@@ -23,6 +34,9 @@ export function StatusBar({ savedAt, wordCount, theme, onToggleTheme, onToggleSi
       <span>{wordCount} {wordCount === 1 ? 'word' : 'words'}</span>
       <span>{savedAt ? `saved ${formatAgo(savedAt)}` : 'unsaved'}</span>
       <span className="spacer" />
+      <button onClick={onToggleSource} title="Toggle source view (⌘/)">
+        {sourceMode ? '✎ Edit' : '</> Source'}
+      </button>
       <button onClick={onExport} title="Export current doc (⌘S)">Export</button>
       <button onClick={onToggleTheme} title="Toggle theme">{theme === 'dark' ? '☀' : '☾'}</button>
       <button onClick={onToggleSidebar} title="Toggle sidebar (⌘\\)">⌘\</button>

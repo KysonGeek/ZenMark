@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Editor } from './components/Editor'
 import { Sidebar } from './components/Sidebar'
+import { SourceEditor } from './components/SourceEditor'
 import { StatusBar } from './components/StatusBar'
 import { useDocs } from './hooks/useDocs'
 import { useShortcuts } from './hooks/useShortcuts'
@@ -16,8 +17,18 @@ export default function App() {
     return localStorage.getItem(SIDEBAR_KEY) !== 'false'
   })
   const [theme, setTheme] = useState<Theme>('light')
+  const [sourceMode, setSourceMode] = useState(false)
   const docs = useDocs()
   const [savingAt, setSavingAt] = useState<number | null>(null)
+  // Holds the latest in-memory content so a mode switch can seed the next
+  // editor before the previous editor's async save has landed in storage.
+  const latestContentRef = useRef<string>('')
+
+  const activeDocId = docs.activeDoc?.id
+  const activeDocContent = docs.activeDoc?.content
+  useEffect(() => {
+    latestContentRef.current = activeDocContent ?? ''
+  }, [activeDocId, activeDocContent])
 
   useEffect(() => {
     const t = getStoredTheme()
@@ -90,11 +101,20 @@ export default function App() {
     }
   }, [docs])
 
+  const onContentUpdate = useCallback((md: string) => {
+    latestContentRef.current = md
+  }, [])
+
+  const onToggleSource = useCallback(() => {
+    setSourceMode((v) => !v)
+  }, [])
+
   useShortcuts({
     onNew: () => docs.createDoc(),
     onExport,
     onToggleSidebar: () => setSidebarOpen((v) => !v),
     onFocusSearch,
+    onToggleSource,
   })
 
   if (!docs.ready) {
@@ -148,20 +168,33 @@ export default function App() {
       )}
       <main className="editor-pane">
         <div className="editor-root">
-          <Editor
-            key={docs.activeDoc.id}
-            docId={docs.activeDoc.id}
-            initialContent={docs.activeDoc.content}
-            onSave={onSaveDoc}
-          />
+          {sourceMode ? (
+            <SourceEditor
+              key={`${docs.activeDoc.id}-src`}
+              docId={docs.activeDoc.id}
+              initialContent={latestContentRef.current || docs.activeDoc.content}
+              onContentUpdate={onContentUpdate}
+              onSave={onSaveDoc}
+            />
+          ) : (
+            <Editor
+              key={`${docs.activeDoc.id}-wyg`}
+              docId={docs.activeDoc.id}
+              initialContent={latestContentRef.current || docs.activeDoc.content}
+              onContentUpdate={onContentUpdate}
+              onSave={onSaveDoc}
+            />
+          )}
         </div>
       </main>
       <StatusBar
         savedAt={savingAt}
         wordCount={countWords(docs.activeDoc.content)}
         theme={theme}
+        sourceMode={sourceMode}
         onToggleTheme={onToggleTheme}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onToggleSource={onToggleSource}
         onExport={onExport}
       />
     </div>

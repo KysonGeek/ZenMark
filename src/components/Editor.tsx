@@ -9,15 +9,18 @@ const SAVE_DEBOUNCE_MS = 500
 interface Props {
   docId: string                  // re-mounts Crepe on change (via React `key`)
   initialContent: string
+  onContentUpdate?: (md: string) => void   // fires on every change (not debounced) — lets parent keep latest content for mode switches
   onSave: (docId: string, content: string) => void
 }
 
-export function Editor({ docId, initialContent, onSave }: Props) {
+export function Editor({ docId, initialContent, onContentUpdate, onSave }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const saveTimerRef = useRef<number | null>(null)
   const latestRef = useRef(initialContent)
   const onSaveRef = useRef(onSave)
+  const onContentUpdateRef = useRef(onContentUpdate)
   onSaveRef.current = onSave
+  onContentUpdateRef.current = onContentUpdate
 
   useEffect(() => {
     if (!hostRef.current) return
@@ -28,6 +31,7 @@ export function Editor({ docId, initialContent, onSave }: Props) {
     crepe.on((listener) => {
       listener.markdownUpdated((_ctx, md) => {
         latestRef.current = md
+        onContentUpdateRef.current?.(md)
         if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
         saveTimerRef.current = window.setTimeout(() => {
           saveTimerRef.current = null

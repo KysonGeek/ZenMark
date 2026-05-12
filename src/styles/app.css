@@ -32,6 +32,22 @@ body { background: var(--bg); color: var(--text); }
   padding: 32px 24px 96px;
 }
 
+.source-editor {
+  width: 100%;
+  min-height: calc(100vh - 200px);
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.65;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .statusbar {
   grid-area: status;
   height: 32px;

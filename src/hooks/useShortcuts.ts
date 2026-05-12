@@ -5,6 +5,7 @@ interface Handlers {
   onExport: () => void
   onToggleSidebar: () => void
   onFocusSearch: () => void
+  onToggleSource: () => void
 }
 
 export function useShortcuts(h: Handlers) {
@@ -16,6 +17,7 @@ export function useShortcuts(h: Handlers) {
       else if (e.key === 's' || e.key === 'S') { e.preventDefault(); h.onExport() }
       else if (e.key === '\\') { e.preventDefault(); h.onToggleSidebar() }
       else if (e.key === 'k' || e.key === 'K') { e.preventDefault(); h.onFocusSearch() }
+      else if (e.key === '/') { e.preventDefault(); h.onToggleSource() }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

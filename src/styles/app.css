@@ -74,4 +74,16 @@ body { background: var(--bg); color: var(--text); }
 }
 .doc-item:hover .doc-delete { visibility: visible; }
 .doc-delete:hover { color: var(--danger); background: rgba(220, 38, 38, 0.1); }
+.app[data-dragover='true']::after {
+  content: 'Drop .md to import';
+  position: fixed; inset: 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  z-index: 1000;
+}
 .doc-empty { padding: 12px; color: var(--text-muted); font-size: 13px; }

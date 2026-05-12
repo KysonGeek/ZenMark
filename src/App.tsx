@@ -63,6 +63,38 @@ export default function App() {
     }, 0)
   }, [sidebarOpen])
 
+  const [dragOver, setDragOver] = useState(false)
+
+  useEffect(() => {
+    function onDragOver(e: DragEvent) {
+      if (e.dataTransfer?.types.includes('Files')) {
+        e.preventDefault()
+        setDragOver(true)
+      }
+    }
+    function onDragLeave(e: DragEvent) {
+      if (e.relatedTarget === null) setDragOver(false)
+    }
+    async function onDrop(e: DragEvent) {
+      e.preventDefault()
+      setDragOver(false)
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      for (const f of files) {
+        if (!f.name.toLowerCase().endsWith('.md') && f.type !== 'text/markdown') continue
+        const content = await f.text()
+        await docs.importDoc(content)
+      }
+    }
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('dragleave', onDragLeave)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [docs])
+
   useShortcuts({
     onNew: () => docs.createDoc(),
     onExport,
@@ -75,7 +107,11 @@ export default function App() {
   }
 
   return (
-    <div className="app" data-sidebar={sidebarOpen ? 'open' : 'closed'}>
+    <div
+      className="app"
+      data-sidebar={sidebarOpen ? 'open' : 'closed'}
+      data-dragover={dragOver ? 'true' : undefined}
+    >
       {sidebarOpen && (
         <Sidebar
           docs={docs.docs}

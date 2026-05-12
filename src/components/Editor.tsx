@@ -1,7 +1,7 @@
 import { Crepe } from '@milkdown/crepe'
 import { editorStateCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/core'
 import { insertImageInputRule, remarkPreserveEmptyLinePlugin } from '@milkdown/preset-commonmark'
-import type { Selection } from '@milkdown/prose/state'
+import { Selection } from '@milkdown/prose/state'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { activeSourceBlock, exitSourceMode, isInSourceMode } from '../lib/activeSourceBlock'
 import '@milkdown/crepe/theme/common/style.css'
@@ -126,6 +126,48 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     }
     host.addEventListener('mousedown', onHostMouseDown, true)
     host.addEventListener('click', onHostMouseDown, true)
+
+    // Clicking the blank area below the markdown content appends an empty
+    // paragraph at the end (if the last line isn't already empty) and moves
+    // the cursor there — a common affordance in note-taking editors.
+    // Listen on editor-root (host's parent) so clicks on its padding area
+    // below the editor are also captured.
+    const editorRoot = host.parentElement
+    const onHostClick = (event: MouseEvent) => {
+      const crepe = crepeRef.current
+      if (!crepe) return
+      const proseMirror = host.querySelector('.ProseMirror') as HTMLElement | null
+      if (!proseMirror) return
+      // .ProseMirror fills the entire editor area, so we check against the
+      // last visible block child instead of the container itself.
+      const lastBlock = proseMirror.lastElementChild as HTMLElement | null
+      if (!lastBlock) return
+      const lastRect = lastBlock.getBoundingClientRect()
+      if (event.clientY <= lastRect.bottom) return
+
+      crepe.editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx)
+        if (!view) return
+        const { doc, schema } = view.state
+        const lastNode = doc.lastChild
+        if (!lastNode) return
+        // If the last node is already an empty paragraph, just move the
+        // cursor there instead of adding a redundant blank line.
+        if (lastNode.type.name === 'paragraph' && lastNode.childCount === 0) {
+          const endPos = doc.content.size
+          view.dispatch(view.state.tr.setSelection(Selection.near(doc.resolve(endPos))))
+          view.focus()
+          return
+        }
+        // Append an empty paragraph at the end and place the cursor inside it.
+        const paragraph = schema.nodes.paragraph.create()
+        const tr = view.state.tr.insert(doc.content.size, paragraph)
+        tr.setSelection(Selection.near(tr.doc.resolve(tr.doc.content.size)))
+        view.dispatch(tr)
+        view.focus()
+      })
+    }
+    editorRoot?.addEventListener('click', onHostClick)
 
     // Toggle a class on the host whenever a modifier is held so CSS can flip
     // <a> elements to a pointer cursor (matching native cmd-click affordance).
@@ -307,6 +349,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       flush()
       host.removeEventListener('mousedown', onHostMouseDown, true)
       host.removeEventListener('click', onHostMouseDown, true)
+      editorRoot?.removeEventListener('click', onHostClick)
       window.removeEventListener('keydown', updateModKeyClass)
       window.removeEventListener('keyup', updateModKeyClass)
       window.removeEventListener('blur', clearModKeyClass)

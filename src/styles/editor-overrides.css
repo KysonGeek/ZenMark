@@ -1,0 +1,24 @@
+.editor-host {
+  font-size: 16px;
+  line-height: 1.65;
+}
+.editor-host .milkdown {
+  background: transparent;
+  color: var(--text);
+}
+.editor-host .milkdown h1,
+.editor-host .milkdown h2,
+.editor-host .milkdown h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.editor-host .milkdown a { color: var(--accent); }
+.editor-host .milkdown blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+.editor-host .milkdown code {
+  background: var(--accent-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}

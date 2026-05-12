@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { deriveTitle } from '../lib/deriveTitle'
-import { type Doc, deleteDoc, listDocs, putDoc } from '../lib/storage'
+import { type Doc, deleteDoc, getDoc, listDocs, putDoc } from '../lib/storage'
 
 const LAST_ID_KEY = 'markra.lastOpenedDocId'
 
@@ -32,9 +32,10 @@ export interface UseDocsApi {
   activeId: string | null
   activeDoc: Doc | null
   ready: boolean
+  saveDoc: (docId: string, content: string) => Promise<void>
+  error: string | null
   setActiveId: (id: string) => void
   createDoc: (content?: string) => Promise<string>
-  saveActive: (content: string) => Promise<void>
   removeDoc: (id: string) => Promise<void>
   importDoc: (content: string) => Promise<string>
 }
@@ -43,6 +44,7 @@ export function useDocs(): UseDocsApi {
   const [docs, setDocs] = useState<Doc[]>([])
   const [activeId, setActiveIdState] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setDocs(await listDocs())
@@ -51,24 +53,30 @@ export function useDocs(): UseDocsApi {
   // First load.
   useEffect(() => {
     (async () => {
-      let all = await listDocs()
-      if (all.length === 0) {
-        const id = crypto.randomUUID()
-        const now = Date.now()
-        await putDoc({
-          id,
-          title: deriveTitle(WELCOME_CONTENT),
-          content: WELCOME_CONTENT,
-          createdAt: now,
-          updatedAt: now,
-        })
-        all = await listDocs()
+      try {
+        let all = await listDocs()
+        if (all.length === 0) {
+          const id = crypto.randomUUID()
+          const now = Date.now()
+          await putDoc({
+            id,
+            title: deriveTitle(WELCOME_CONTENT),
+            content: WELCOME_CONTENT,
+            createdAt: now,
+            updatedAt: now,
+          })
+          all = await listDocs()
+        }
+        setDocs(all)
+        const lastId = localStorage.getItem(LAST_ID_KEY)
+        const initial = (lastId && all.find((d) => d.id === lastId)) || all[0]
+        if (initial) setActiveIdState(initial.id)
+        setReady(true)
+      } catch (err) {
+        console.error('Failed to load docs', err)
+        setError(err instanceof Error ? err.message : String(err))
+        setReady(true)
       }
-      setDocs(all)
-      const lastId = localStorage.getItem(LAST_ID_KEY)
-      const initial = (lastId && all.find((d) => d.id === lastId)) || all[0]
-      setActiveIdState(initial.id)
-      setReady(true)
     })()
   }, [])
 
@@ -92,9 +100,9 @@ export function useDocs(): UseDocsApi {
     return id
   }, [refresh, setActiveId])
 
-  const saveActive = useCallback(async (content: string) => {
-    if (!activeId) return
-    const existing = docs.find((d) => d.id === activeId)
+  const saveDoc = useCallback(async (id: string, content: string) => {
+    // Read fresh from storage so a deleted doc isn't accidentally resurrected.
+    const existing = await getDoc(id)
     if (!existing) return
     await putDoc({
       ...existing,
@@ -103,7 +111,7 @@ export function useDocs(): UseDocsApi {
       updatedAt: Date.now(),
     })
     await refresh()
-  }, [activeId, docs, refresh])
+  }, [refresh])
 
   const removeDoc = useCallback(async (id: string) => {
     await deleteDoc(id)
@@ -128,9 +136,10 @@ export function useDocs(): UseDocsApi {
     activeId,
     activeDoc,
     ready,
+    error,
     setActiveId,
     createDoc,
-    saveActive,
+    saveDoc,
     removeDoc,
     importDoc,
   }

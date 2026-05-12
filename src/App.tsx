@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Editor } from './components/Editor'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -9,7 +9,6 @@ import { applyTheme, getStoredTheme, type Theme } from './lib/theme'
 import './styles/theme.css'
 import './styles/app.css'
 
-const SAVE_DEBOUNCE_MS = 500
 const SIDEBAR_KEY = 'markra.sidebarOpen'
 
 export default function App() {
@@ -18,7 +17,6 @@ export default function App() {
   })
   const [theme, setTheme] = useState<Theme>('light')
   const docs = useDocs()
-  const saveTimer = useRef<number | null>(null)
   const [savingAt, setSavingAt] = useState<number | null>(null)
 
   useEffect(() => {
@@ -31,16 +29,13 @@ export default function App() {
     localStorage.setItem(SIDEBAR_KEY, String(sidebarOpen))
   }, [sidebarOpen])
 
-  const onEditorChange = useCallback((md: string) => {
-    if (saveTimer.current) window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(async () => {
-      try {
-        await docs.saveActive(md)
-        setSavingAt(Date.now())
-      } catch (err) {
-        console.error('save failed', err)
-      }
-    }, SAVE_DEBOUNCE_MS)
+  const onSaveDoc = useCallback(async (docId: string, md: string) => {
+    try {
+      await docs.saveDoc(docId, md)
+      setSavingAt(Date.now())
+    } catch (err) {
+      console.error('save failed', err)
+    }
   }, [docs])
 
   const onToggleTheme = useCallback(() => {
@@ -102,7 +97,37 @@ export default function App() {
     onFocusSearch,
   })
 
-  if (!docs.ready || !docs.activeDoc) {
+  if (!docs.ready) {
+    return (
+      <div className="app">
+        <main className="editor-pane">
+          <div className="editor-root" style={{ padding: 32, color: 'var(--text-muted)' }}>
+            Loading…
+          </div>
+        </main>
+      </div>
+    )
+  }
+  if (docs.error) {
+    return (
+      <div className="app">
+        <main className="editor-pane">
+          <div className="editor-root" style={{ padding: 32 }}>
+            <h2>Can’t open local storage</h2>
+            <p style={{ color: 'var(--text-muted)' }}>
+              This editor stores documents in your browser via IndexedDB, but it
+              looks like that isn’t available. Common causes: private/incognito
+              mode with strict settings, browser policy, or quota exhaustion.
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+              Error: {docs.error}
+            </p>
+          </div>
+        </main>
+      </div>
+    )
+  }
+  if (!docs.activeDoc) {
     return <div className="app"><main className="editor-pane" /></div>
   }
 
@@ -127,7 +152,7 @@ export default function App() {
             key={docs.activeDoc.id}
             docId={docs.activeDoc.id}
             initialContent={docs.activeDoc.content}
-            onChange={onEditorChange}
+            onSave={onSaveDoc}
           />
         </div>
       </main>

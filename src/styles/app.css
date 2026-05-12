@@ -28,7 +28,7 @@ body { background: var(--bg); color: var(--text); }
 }
 .editor-pane > .editor-root {
   width: 100%;
-  max-width: 780px;
+  max-width: 66.6667vw;
   padding: 32px 24px 96px;
 }
 

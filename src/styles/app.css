@@ -4,12 +4,13 @@ body { background: var(--bg); color: var(--text); }
 
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w, 260px) 1fr;
+  grid-template-columns: var(--sidebar-w, 260px) 1fr var(--outline-w, 240px);
   grid-template-rows: 1fr auto;
-  grid-template-areas: "sidebar editor" "status status";
+  grid-template-areas: "sidebar editor outline" "status status status";
   height: 100vh;
 }
 .app[data-sidebar='closed'] { --sidebar-w: 0px; }
+.app:not(:has(.outline)) { --outline-w: 0px; }
 
 .sidebar {
   grid-area: sidebar;
@@ -31,6 +32,37 @@ body { background: var(--bg); color: var(--text); }
   max-width: 66.6667vw;
   padding: 32px 24px 96px;
 }
+
+.outline {
+  grid-area: outline;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 8px;
+  font-size: 13px;
+}
+.outline-title {
+  padding: 4px 8px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.outline-list { list-style: none; margin: 0; padding: 0; }
+.outline-item {
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item:hover { background: var(--accent-bg); }
+.outline-l1 { font-weight: 600; }
+.outline-l2 { padding-left: 20px; }
+.outline-l3 { padding-left: 32px; color: var(--text-muted); }
+.outline-empty { padding: 8px; color: var(--text-muted); font-size: 12px; }
 
 .source-editor {
   width: 100%;

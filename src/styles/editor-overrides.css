@@ -13,6 +13,12 @@
   letter-spacing: -0.01em;
 }
 .editor-host .milkdown a { color: var(--accent); }
+/* When the user holds Cmd/Ctrl/Alt, links become click-to-open targets, so
+   show the standard hand cursor to advertise that. */
+.editor-host.mod-key-down .milkdown a,
+.editor-host.mod-key-down .milkdown a * {
+  cursor: pointer;
+}
 .editor-host .milkdown blockquote {
   border-left: 3px solid var(--border);
   color: var(--text-muted);
@@ -23,16 +29,11 @@
   border-radius: 3px;
 }
 
-/* Inline markdown source markers — shown only on the cursor's current block.
-   Rendered by the syntaxOnCurrentBlock ProseMirror plugin via widget decorations. */
-.editor-host .md-marker {
-  color: var(--text-muted);
-  opacity: 0.55;
-  font-weight: normal;
-  font-style: normal;
-  text-decoration: none;
-  user-select: none;
-  pointer-events: none;
+/* The currently-active textblock is swapped into raw markdown source by the
+   activeSourceBlock plugin. Render it in a monospace dim style so users can
+   tell at a glance they are editing source characters (#, **, [], etc.). */
+.editor-host .md-source-line {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.92em;
+  color: var(--text-muted);
+  white-space: pre-wrap;
 }

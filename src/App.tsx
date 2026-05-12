@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Editor } from './components/Editor'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Editor, type EditorHandle } from './components/Editor'
+import { Outline } from './components/Outline'
 import { Sidebar } from './components/Sidebar'
 import { SourceEditor } from './components/SourceEditor'
 import { StatusBar } from './components/StatusBar'
 import { useDocs } from './hooks/useDocs'
 import { useShortcuts } from './hooks/useShortcuts'
 import { downloadMarkdown } from './lib/ioFile'
+import { parseOutline } from './lib/parseOutline'
 import { applyTheme, getStoredTheme, type Theme } from './lib/theme'
 import './styles/theme.css'
 import './styles/app.css'
@@ -23,12 +25,26 @@ export default function App() {
   // Holds the latest in-memory content so a mode switch can seed the next
   // editor before the previous editor's async save has landed in storage.
   const latestContentRef = useRef<string>('')
+  // Tracks which doc id `latestContentRef` belongs to. Required because when
+  // the user switches files, this component re-renders *before* the useEffect
+  // below gets a chance to reset the ref — so without this guard the freshly
+  // mounted <Editor> for doc B would read doc A's content out of the ref as
+  // its initialContent (and then overwrite B in storage on the next save).
+  const latestContentDocIdRef = useRef<string | null>(null)
+  // Same value as latestContentRef but reactive — drives the live outline
+  // without forcing the editor to remount on every keystroke.
+  const [liveContent, setLiveContent] = useState<string>('')
+  const editorRef = useRef<EditorHandle>(null)
 
   const activeDocId = docs.activeDoc?.id
   const activeDocContent = docs.activeDoc?.content
   useEffect(() => {
     latestContentRef.current = activeDocContent ?? ''
+    latestContentDocIdRef.current = activeDocId ?? null
+    setLiveContent(activeDocContent ?? '')
   }, [activeDocId, activeDocContent])
+
+  const outlineItems = useMemo(() => parseOutline(liveContent), [liveContent])
 
   useEffect(() => {
     const t = getStoredTheme()
@@ -102,8 +118,13 @@ export default function App() {
   }, [docs])
 
   const onContentUpdate = useCallback((md: string) => {
+    // Only adopt this update if it belongs to the currently active doc. Late
+    // updates from a previous doc's editor (e.g. fired during unmount) must
+    // not poison the new doc's in-memory content.
+    if (latestContentDocIdRef.current !== activeDocId) return
     latestContentRef.current = md
-  }, [])
+    setLiveContent(md)
+  }, [activeDocId])
 
   const onToggleSource = useCallback(() => {
     setSourceMode((v) => !v)
@@ -151,6 +172,14 @@ export default function App() {
     return <div className="app"><main className="editor-pane" /></div>
   }
 
+  // Seed the editor with the freshest in-memory content *iff* our ref still
+  // belongs to this doc. If the ref is stale (e.g. still holding doc A while
+  // we've just switched to doc B), fall back to the doc's persisted content.
+  const seedContent =
+    latestContentDocIdRef.current === docs.activeDoc.id
+      ? latestContentRef.current || docs.activeDoc.content
+      : docs.activeDoc.content
+
   return (
     <div
       className="app"
@@ -172,21 +201,28 @@ export default function App() {
             <SourceEditor
               key={`${docs.activeDoc.id}-src`}
               docId={docs.activeDoc.id}
-              initialContent={latestContentRef.current || docs.activeDoc.content}
+              initialContent={seedContent}
               onContentUpdate={onContentUpdate}
               onSave={onSaveDoc}
             />
           ) : (
             <Editor
               key={`${docs.activeDoc.id}-wyg`}
+              ref={editorRef}
               docId={docs.activeDoc.id}
-              initialContent={latestContentRef.current || docs.activeDoc.content}
+              initialContent={seedContent}
               onContentUpdate={onContentUpdate}
               onSave={onSaveDoc}
             />
           )}
         </div>
       </main>
+      {!sourceMode && (
+        <Outline
+          items={outlineItems}
+          onJump={(it) => editorRef.current?.scrollToHeading(it.index)}
+        />
+      )}
       <StatusBar
         savedAt={savingAt}
         wordCount={countWords(docs.activeDoc.content)}

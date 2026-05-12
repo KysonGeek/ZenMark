@@ -37,7 +37,13 @@ export default function App() {
 
   return (
     <div className="app" data-sidebar={sidebarOpen ? 'open' : 'closed'}>
-      <Sidebar />
+      <Sidebar
+        docs={docs.docs}
+        activeId={docs.activeId}
+        onSelect={docs.setActiveId}
+        onCreate={() => docs.createDoc()}
+        onDelete={(id) => docs.removeDoc(id)}
+      />
       <main className="editor-pane">
         <div className="editor-root">
           <Editor

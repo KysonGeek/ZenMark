@@ -47,3 +47,31 @@ body { background: var(--bg); color: var(--text); }
 .statusbar .spacer { flex: 1; }
 .statusbar button { background: none; border: none; color: inherit; cursor: pointer; font: inherit; padding: 4px 8px; border-radius: 4px; }
 .statusbar button:hover { background: var(--accent-bg); }
+.sidebar-actions { padding: 12px 12px 6px; }
+.sidebar-actions button {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); border-radius: 6px;
+  cursor: pointer; font: inherit;
+}
+.sidebar-actions button:hover { background: var(--accent-bg); }
+.sidebar-search { padding: 6px 12px 12px; }
+.sidebar-search input {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); border-radius: 6px;
+  font: inherit;
+}
+.doc-list { list-style: none; margin: 0; padding: 0 6px; overflow-y: auto; flex: 1; }
+.doc-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.doc-item:hover { background: var(--accent-bg); }
+.doc-item.active { background: var(--accent-bg); color: var(--accent); }
+.doc-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-delete {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 0 4px; border-radius: 4px; visibility: hidden;
+}
+.doc-item:hover .doc-delete { visibility: visible; }
+.doc-delete:hover { color: var(--danger); background: rgba(220, 38, 38, 0.1); }
+.doc-empty { padding: 12px; color: var(--text-muted); font-size: 13px; }

@@ -43,9 +43,11 @@ body { background: var(--bg); color: var(--text); }
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 14px;
   line-height: 1.65;
-  padding: 0;
+  /* Mirrors Crepe's .ProseMirror padding so the visual content box matches the WYSIWYG view. */
+  padding: 60px 120px;
   white-space: pre-wrap;
   word-break: break-word;
+  box-sizing: border-box;
 }
 
 .statusbar {

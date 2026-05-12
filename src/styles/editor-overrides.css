@@ -12,6 +12,20 @@
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+.editor-host .milkdown h1 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.editor-host .milkdown h2 {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--border-soft);
+}
+.editor-host .milkdown h4,
+.editor-host .milkdown h5,
+.editor-host .milkdown h6 {
+  color: var(--text-muted);
+  font-weight: 600;
+}
 .editor-host .milkdown a { color: var(--accent); }
 /* When the user holds Cmd/Ctrl/Alt, links become click-to-open targets, so
    show the standard hand cursor to advertise that. */
@@ -24,9 +38,50 @@
   color: var(--text-muted);
 }
 .editor-host .milkdown code {
-  background: var(--accent-bg);
-  padding: 1px 4px;
+  background: var(--code-bg);
+  color: var(--text);
+  padding: 1px 5px;
   border-radius: 3px;
+  font-size: 0.9em;
+}
+.editor-host .milkdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Crepe's `frame` theme defines all of its color tokens on `.milkdown`, which
+   means flipping `data-theme` on <html> alone doesn't repaint code blocks,
+   toolbars, etc. Re-bind the relevant tokens here so dark mode shows dark
+   surfaces. Values mirror Crepe's bundled `frame-dark` theme. */
+[data-theme='dark'] .editor-host .milkdown {
+  --crepe-color-background: var(--bg);
+  --crepe-color-on-background: var(--text);
+  --crepe-color-surface: #181818;
+  --crepe-color-surface-low: #202020;
+  --crepe-color-on-surface: var(--text);
+  --crepe-color-on-surface-variant: var(--text-muted);
+  --crepe-color-outline: #555;
+  --crepe-color-primary: #b5b5b5;
+  --crepe-color-secondary: #3a3a3a;
+  --crepe-color-on-secondary: #d6d6d6;
+  --crepe-color-inverse: #e5e5e5;
+  --crepe-color-on-inverse: #2a2a2a;
+  --crepe-color-inline-code: #ff8a8a;
+  --crepe-color-error: #ff6666;
+  --crepe-color-hover: #262626;
+  --crepe-color-selected: #2f2f2f;
+  --crepe-color-inline-area: #2b2b2b;
+}
+
+/* CodeMirror tags the cursor's line/gutter with `cm-activeLine` /
+   `cm-activeLineGutter` based purely on selection — it doesn't clear them on
+   blur. That left a stale gutter highlight lingering after the user clicked
+   out of a code block. Suppress both unless the embedded CM editor is
+   actually focused. */
+.editor-host .milkdown .cm-editor:not(.cm-focused) .cm-activeLineGutter,
+.editor-host .milkdown .cm-editor:not(.cm-focused) .cm-activeLine {
+  background-color: transparent;
 }
 
 /* The currently-active textblock is swapped into raw markdown source by the

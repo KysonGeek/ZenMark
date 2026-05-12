@@ -1,25 +1,32 @@
 import { useEffect, useState } from 'react'
+import type { ViewMode } from '../App'
 import type { Theme } from '../lib/theme'
 
 interface Props {
   savedAt: number | null
   wordCount: number
   theme: Theme
-  sourceMode: boolean
+  mode: ViewMode
   onToggleTheme: () => void
   onToggleSidebar: () => void
-  onToggleSource: () => void
+  onSetMode: (mode: ViewMode) => void
   onExport: () => void
 }
+
+const MODE_OPTIONS: { value: ViewMode; label: string; title: string }[] = [
+  { value: 'wyg', label: 'Edit', title: 'Edit (default)' },
+  { value: 'read', label: 'Read', title: 'Read-only — drag-select copies clean text (⇧⌘R)' },
+  { value: 'source', label: 'Source', title: 'Markdown source (⌘/)' },
+]
 
 export function StatusBar({
   savedAt,
   wordCount,
   theme,
-  sourceMode,
+  mode,
   onToggleTheme,
   onToggleSidebar,
-  onToggleSource,
+  onSetMode,
   onExport,
 }: Props) {
   const [, setTick] = useState(0)
@@ -34,10 +41,21 @@ export function StatusBar({
       <span>{wordCount} {wordCount === 1 ? 'word' : 'words'}</span>
       <span>{savedAt ? `saved ${formatAgo(savedAt)}` : 'unsaved'}</span>
       <span className="spacer" />
-      <button onClick={onToggleSource} title="Toggle source view (⌘/)">
-        {sourceMode ? '✎ Edit' : '</> Source'}
-      </button>
-      <button onClick={onExport} title="Export current doc (⌘S)">Export</button>
+      <div className="mode-switch" role="tablist" aria-label="View mode">
+        {MODE_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            role="tab"
+            aria-selected={mode === opt.value}
+            className={`mode-switch-btn${mode === opt.value ? ' selected' : ''}`}
+            onClick={() => onSetMode(opt.value)}
+            title={opt.title}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <button onClick={onExport} title="Export current doc (⇧⌘E)">Export</button>
       <button onClick={onToggleTheme} title="Toggle theme">{theme === 'dark' ? '☀' : '☾'}</button>
       <button onClick={onToggleSidebar} title="Toggle sidebar (⌘\\)">⌘\</button>
     </footer>

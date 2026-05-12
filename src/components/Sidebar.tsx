@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Doc } from '../lib/storage'
 
 interface Props {
@@ -7,16 +7,44 @@ interface Props {
   onSelect: (id: string) => void
   onCreate: () => void
   onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
 }
 
-export function Sidebar({ docs, activeId, onSelect, onCreate, onDelete }: Props) {
+export function Sidebar({ docs, activeId, onSelect, onCreate, onDelete, onRename }: Props) {
   const [query, setQuery] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return docs
     return docs.filter((d) => d.title.toLowerCase().includes(q))
   }, [docs, query])
+
+  // Auto-focus and select-all when an item enters edit mode so the user can
+  // immediately overtype.
+  useEffect(() => {
+    if (editingId !== null) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [editingId])
+
+  function startEdit(doc: Doc) {
+    setEditingId(doc.id)
+    setDraft(doc.title)
+  }
+
+  function commit() {
+    if (editingId === null) return
+    onRename(editingId, draft)
+    setEditingId(null)
+  }
+
+  function cancel() {
+    setEditingId(null)
+  }
 
   return (
     <aside className="sidebar">
@@ -33,25 +61,51 @@ export function Sidebar({ docs, activeId, onSelect, onCreate, onDelete }: Props)
         />
       </div>
       <ul className="doc-list">
-        {filtered.map((d) => (
-          <li
-            key={d.id}
-            className={`doc-item ${d.id === activeId ? 'active' : ''}`}
-            onClick={() => onSelect(d.id)}
-          >
-            <span className="doc-title">{d.title}</span>
-            <button
-              className="doc-delete"
-              aria-label={`Delete ${d.title}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (confirm(`Delete "${d.title}"?`)) onDelete(d.id)
-              }}
+        {filtered.map((d) => {
+          const isEditing = d.id === editingId
+          return (
+            <li
+              key={d.id}
+              className={`doc-item ${d.id === activeId ? 'active' : ''}`}
+              onClick={() => !isEditing && onSelect(d.id)}
+              onDoubleClick={() => startEdit(d)}
+              title={isEditing ? undefined : 'Double-click to rename'}
             >
-              ×
-            </button>
-          </li>
-        ))}
+              {isEditing ? (
+                <input
+                  ref={inputRef}
+                  className="doc-title-input"
+                  value={draft}
+                  spellCheck={false}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={commit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      commit()
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      cancel()
+                    }
+                  }}
+                />
+              ) : (
+                <span className="doc-title">{d.title}</span>
+              )}
+              <button
+                className="doc-delete"
+                aria-label={`Delete ${d.title}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDelete(d.id)
+                }}
+              >
+                ×
+              </button>
+            </li>
+          )
+        })}
         {filtered.length === 0 && <li className="doc-empty">No documents.</li>}
       </ul>
     </aside>

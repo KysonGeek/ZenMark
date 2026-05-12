@@ -36,7 +36,15 @@ export interface UseDocsApi {
   error: string | null
   setActiveId: (id: string) => void
   createDoc: (content?: string) => Promise<string>
-  removeDoc: (id: string) => Promise<void>
+  // Returns the id of any blank placeholder we had to spin up because the
+  // user deleted the last remaining doc — undo can use it to clean up.
+  removeDoc: (id: string) => Promise<{ placeholderId: string | null }>
+  // Re-insert a previously-deleted doc with its original id/timestamps. Used
+  // by the Undo affordance on the delete toast.
+  restoreDoc: (doc: Doc) => Promise<void>
+  // Rename a doc. Empty `title` reverts to the H1-derived title and clears
+  // the override flag.
+  renameDoc: (id: string, title: string) => Promise<void>
   importDoc: (content: string) => Promise<string>
 }
 
@@ -104,28 +112,57 @@ export function useDocs(): UseDocsApi {
     // Read fresh from storage so a deleted doc isn't accidentally resurrected.
     const existing = await getDoc(id)
     if (!existing) return
+    // Respect a user-set title: only re-derive from the H1 when the user has
+    // not manually renamed this doc.
+    const nextTitle = existing.titleOverridden ? existing.title : deriveTitle(content)
     await putDoc({
       ...existing,
       content,
-      title: deriveTitle(content),
+      title: nextTitle,
       updatedAt: Date.now(),
     })
     await refresh()
   }, [refresh])
 
-  const removeDoc = useCallback(async (id: string) => {
+  const removeDoc = useCallback(async (id: string): Promise<{ placeholderId: string | null }> => {
     await deleteDoc(id)
     const remaining = await listDocs()
     setDocs(remaining)
+    let placeholderId: string | null = null
     if (activeId === id) {
       const next = remaining[0]?.id ?? null
       if (next) setActiveId(next)
       else {
-        // No docs left → create a fresh blank one.
-        await createDoc()
+        // No docs left → create a fresh blank one. Track it so undo can
+        // remove it after restoring the original doc.
+        placeholderId = await createDoc()
       }
     }
+    return { placeholderId }
   }, [activeId, createDoc, setActiveId])
+
+  const restoreDoc = useCallback(async (doc: Doc) => {
+    await putDoc(doc)
+    await refresh()
+    setActiveId(doc.id)
+  }, [refresh, setActiveId])
+
+  const renameDoc = useCallback(async (id: string, title: string) => {
+    const existing = await getDoc(id)
+    if (!existing) return
+    const trimmed = title.trim()
+    // Empty input clears the override and falls back to the H1-derived title.
+    // Non-empty input pins the user-supplied title until they clear it again.
+    const next: Doc = trimmed.length === 0
+      ? { ...existing, title: deriveTitle(existing.content), titleOverridden: false, updatedAt: Date.now() }
+      : { ...existing, title: trimmed, titleOverridden: true, updatedAt: Date.now() }
+    if (next.title === existing.title && !!next.titleOverridden === !!existing.titleOverridden) {
+      // Nothing actually changed — avoid bumping updatedAt for no reason.
+      return
+    }
+    await putDoc(next)
+    await refresh()
+  }, [refresh])
 
   const importDoc = useCallback((content: string) => createDoc(content), [createDoc])
 
@@ -141,6 +178,8 @@ export function useDocs(): UseDocsApi {
     createDoc,
     saveDoc,
     removeDoc,
+    restoreDoc,
+    renameDoc,
     importDoc,
   }
 }

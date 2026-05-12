@@ -6,6 +6,10 @@ export interface Doc {
   content: string
   createdAt: number
   updatedAt: number
+  // Set when the user has manually renamed the doc. While true, subsequent
+  // content edits must not overwrite `title` with `deriveTitle(content)`.
+  // Undefined / false = title is auto-derived from the first H1.
+  titleOverridden?: boolean
 }
 
 interface MarkraDB extends DBSchema {

@@ -1,7 +1,6 @@
 import { Crepe } from '@milkdown/crepe'
 import { editorStateCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/core'
 import { insertImageInputRule, remarkPreserveEmptyLinePlugin } from '@milkdown/preset-commonmark'
-import { TextSelection } from '@milkdown/prose/state'
 import type { Selection } from '@milkdown/prose/state'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { activeSourceBlock, exitSourceMode, isInSourceMode } from '../lib/activeSourceBlock'
@@ -14,12 +13,24 @@ interface Props {
   initialContent: string
   onContentUpdate?: (md: string) => void   // fires on every change — lets parent keep latest content for mode switches
   onSave: (docId: string, content: string) => void
+  // Fires when the scroll position moves into a different h1-h3 region.
+  // -1 means no heading is currently considered active (e.g. doc has none,
+  // or the user has scrolled above the first one).
+  onActiveHeadingChange?: (index: number) => void
+  // Read-only mode for the "Read" view (drag-select & copy without picking up
+  // markdown markers). Toggled live on the existing Crepe instance — no
+  // remount needed.
+  readOnly?: boolean
 }
 
 // Imperative handle exposed to the parent so the outline panel can drive the
 // editor without needing access to Crepe internals.
 export interface EditorHandle {
   scrollToHeading: (headingIndex: number) => void
+  // Force a save right now (exit source mode + flush dirty content). Used by
+  // the ⌘S shortcut so users get explicit save feedback even though the editor
+  // already autosaves on blur / block change.
+  forceSave: () => void
 }
 
 // Returns an identifier that stays the same while the cursor stays inside
@@ -41,7 +52,7 @@ function blockIdFromSelection(sel: Selection): number | null {
 // it runs in the capture phase, ahead of Crepe's link tooltip handler.)
 
 export const Editor = forwardRef<EditorHandle, Props>(function Editor(
-  { docId, initialContent, onContentUpdate, onSave },
+  { docId, initialContent, onContentUpdate, onSave, onActiveHeadingChange, readOnly = false },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -49,10 +60,17 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
   const savedRef = useRef(initialContent)     // last markdown actually persisted
   const blockIdRef = useRef<number | null>(null)
   const crepeRef = useRef<Crepe | null>(null)
+  // Updated each time useEffect re-binds. Lets the imperative handle reach
+  // the *current* flush closure without leaking it out of the effect.
+  const flushRef = useRef<() => void>(() => {})
   const onSaveRef = useRef(onSave)
   const onContentUpdateRef = useRef(onContentUpdate)
+  const onActiveHeadingChangeRef = useRef(onActiveHeadingChange)
+  const readOnlyRef = useRef(readOnly)
   onSaveRef.current = onSave
   onContentUpdateRef.current = onContentUpdate
+  onActiveHeadingChangeRef.current = onActiveHeadingChange
+  readOnlyRef.current = readOnly
 
   useImperativeHandle(ref, () => ({
     scrollToHeading: (headingIndex) => {
@@ -61,11 +79,13 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       crepe.editor.action((ctx) => {
         const view = ctx.get(editorViewCtx)
         if (!view) return
+        // Match parseOutline: count only h1-h3 so jump indices line up with
+        // the outline panel (h4-h6 are ignored there).
         let i = 0
         let targetPos = -1
         view.state.doc.descendants((node, pos) => {
           if (targetPos >= 0) return false
-          if (node.type.name === 'heading') {
+          if (node.type.name === 'heading' && (node.attrs.level ?? 0) <= 3) {
             if (i === headingIndex) {
               targetPos = pos
               return false
@@ -75,13 +95,14 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
           return true
         })
         if (targetPos < 0) return
-        // Place the cursor at the start of the heading's text content.
-        const { tr } = view.state
-        const sel = TextSelection.create(view.state.doc, targetPos + 1)
-        view.dispatch(tr.setSelection(sel).scrollIntoView())
-        view.focus()
+        // Scroll without moving the selection — moving the caret into the
+        // heading would trigger activeSourceBlock and replace the rendered
+        // heading with its raw markdown text.
+        const dom = view.nodeDOM(targetPos) as HTMLElement | null
+        dom?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
     },
+    forceSave: () => flushRef.current(),
   }))
 
   useEffect(() => {
@@ -142,6 +163,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
         onSaveRef.current(docId, latestRef.current)
       }
     }
+    flushRef.current = flush
 
     const crepe = new Crepe({
       root: hostRef.current,
@@ -202,6 +224,51 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
         flush()
       })
     })
+    // Walk up to the nearest scrollable ancestor so we can listen for scroll
+    // and compute which heading is currently "active" (i.e. last one whose
+    // top edge has passed the threshold near the viewport top).
+    let scroller: HTMLElement | null = host.parentElement
+    while (scroller && scroller !== document.body) {
+      const oy = getComputedStyle(scroller).overflowY
+      if (oy === 'auto' || oy === 'scroll') break
+      scroller = scroller.parentElement
+    }
+    let lastActiveIdx = -2
+    let scrollRaf = 0
+    const updateActiveHeading = () => {
+      scrollRaf = 0
+      const cb = onActiveHeadingChangeRef.current
+      if (!cb || !scroller) return
+      const headings = host.querySelectorAll<HTMLElement>(
+        '.milkdown h1, .milkdown h2, .milkdown h3',
+      )
+      if (headings.length === 0) {
+        if (lastActiveIdx !== -1) {
+          lastActiveIdx = -1
+          cb(-1)
+        }
+        return
+      }
+      const threshold = scroller.getBoundingClientRect().top + 96
+      let idx = -1
+      for (let i = 0; i < headings.length; i++) {
+        if (headings[i].getBoundingClientRect().top <= threshold) idx = i
+        else break
+      }
+      // Before scrolling past the first heading, treat the first as active so
+      // the outline always reflects "where you are" rather than blanking out.
+      if (idx < 0) idx = 0
+      if (idx !== lastActiveIdx) {
+        lastActiveIdx = idx
+        cb(idx)
+      }
+    }
+    const scheduleActiveHeadingUpdate = () => {
+      if (scrollRaf) return
+      scrollRaf = requestAnimationFrame(updateActiveHeading)
+    }
+    scroller?.addEventListener('scroll', scheduleActiveHeadingUpdate, { passive: true })
+
     crepe
       .create()
       .then(() => {
@@ -217,10 +284,23 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
             // slice already absent — safe to ignore
           }
         })
+        // Apply the initial readonly state — the dedicated useEffect below
+        // also calls setReadonly but it runs *before* create() resolves on
+        // first mount, so the call is a no-op until the editor exists.
+        crepe.setReadonly(readOnlyRef.current)
+        // After mount, run once so the outline gets an initial active item.
+        scheduleActiveHeadingUpdate()
       })
       .catch((err) => {
         console.error('Crepe failed to mount', err)
       })
+    // Also recompute after edits — adding/removing headings shifts which one
+    // contains the cursor's region.
+    crepe.on((listener) => {
+      listener.markdownUpdated(() => {
+        scheduleActiveHeadingUpdate()
+      })
+    })
     return () => {
       // Flush any pending edits synchronously so doc switches and unmounts
       // don't drop the last keystrokes.
@@ -230,6 +310,8 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       window.removeEventListener('keydown', updateModKeyClass)
       window.removeEventListener('keyup', updateModKeyClass)
       window.removeEventListener('blur', clearModKeyClass)
+      scroller?.removeEventListener('scroll', scheduleActiveHeadingUpdate)
+      if (scrollRaf) cancelAnimationFrame(scrollRaf)
       crepeRef.current = null
       crepe.destroy().catch(() => {
         // ignore destroy errors during unmount
@@ -240,6 +322,28 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return <div ref={hostRef} className="editor-host" />
+  // Toggle Crepe's readonly state without remounting the editor. Safe to call
+  // before .create() resolves — Crepe's setReadonly is internally guarded.
+  // After flipping editable, dispatch a no-op transaction so activeSourceBlock
+  // re-runs apply() and renders any currently-active source paragraph back to
+  // its rich form (its new editable-guard short-circuits to activePos=null).
+  // Without the nudge, toggling read mode via shortcut while the editor is
+  // focused would leave a heading frozen as "# foo" plaintext.
+  useEffect(() => {
+    const crepe = crepeRef.current
+    if (!crepe) return
+    crepe.setReadonly(readOnly)
+    try {
+      crepe.editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx)
+        view.dispatch(view.state.tr.setMeta('addToHistory', false))
+      })
+    } catch {
+      // editor not yet created — initial readonly state is applied inside
+      // create().then() above, so this is safe to ignore.
+    }
+  }, [readOnly])
+
+  return <div ref={hostRef} className="editor-host" data-readonly={readOnly ? 'true' : undefined} />
 })
 

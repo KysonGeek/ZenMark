@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Editor, type EditorHandle } from './components/Editor'
+import { OnboardingCard } from './components/OnboardingCard'
 import { Outline } from './components/Outline'
+import { QuickOpen } from './components/QuickOpen'
 import { Sidebar } from './components/Sidebar'
-import { SourceEditor } from './components/SourceEditor'
+import { SourceEditor, type SourceEditorHandle } from './components/SourceEditor'
 import { StatusBar } from './components/StatusBar'
+import { Toast } from './components/Toast'
+import type { Doc } from './lib/storage'
 import { useDocs } from './hooks/useDocs'
 import { useShortcuts } from './hooks/useShortcuts'
 import { downloadMarkdown } from './lib/ioFile'
@@ -14,12 +18,14 @@ import './styles/app.css'
 
 const SIDEBAR_KEY = 'markra.sidebarOpen'
 
+export type ViewMode = 'wyg' | 'read' | 'source'
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     return localStorage.getItem(SIDEBAR_KEY) !== 'false'
   })
   const [theme, setTheme] = useState<Theme>('light')
-  const [sourceMode, setSourceMode] = useState(false)
+  const [mode, setMode] = useState<ViewMode>('wyg')
   const docs = useDocs()
   const [savingAt, setSavingAt] = useState<number | null>(null)
   // Holds the latest in-memory content so a mode switch can seed the next
@@ -34,7 +40,16 @@ export default function App() {
   // Same value as latestContentRef but reactive — drives the live outline
   // without forcing the editor to remount on every keystroke.
   const [liveContent, setLiveContent] = useState<string>('')
+  const [activeHeading, setActiveHeading] = useState<number>(-1)
+  const [quickOpen, setQuickOpen] = useState(false)
+  // Snapshot of the most recently deleted doc plus any placeholder we had to
+  // spin up (when the user deleted the last doc). Drives the Undo toast.
+  const [pendingDelete, setPendingDelete] = useState<{
+    doc: Doc
+    placeholderId: string | null
+  } | null>(null)
   const editorRef = useRef<EditorHandle>(null)
+  const sourceEditorRef = useRef<SourceEditorHandle>(null)
 
   const activeDocId = docs.activeDoc?.id
   const activeDocContent = docs.activeDoc?.content
@@ -126,16 +141,51 @@ export default function App() {
     setLiveContent(md)
   }, [activeDocId])
 
+  const onDeleteDoc = useCallback(async (id: string) => {
+    // Snapshot before delete so Undo can resurrect the doc with its original
+    // id and timestamps intact.
+    const snapshot = docs.docs.find((d) => d.id === id)
+    if (!snapshot) return
+    const { placeholderId } = await docs.removeDoc(id)
+    setPendingDelete({ doc: snapshot, placeholderId })
+  }, [docs])
+
+  const onUndoDelete = useCallback(async () => {
+    if (!pendingDelete) return
+    await docs.restoreDoc(pendingDelete.doc)
+    // Roll back the blank placeholder we may have created on delete.
+    if (pendingDelete.placeholderId) {
+      await docs.removeDoc(pendingDelete.placeholderId)
+    }
+    setPendingDelete(null)
+  }, [docs, pendingDelete])
+
   const onToggleSource = useCallback(() => {
-    setSourceMode((v) => !v)
+    setMode((m) => (m === 'source' ? 'wyg' : 'source'))
   }, [])
+
+  const onToggleRead = useCallback(() => {
+    setMode((m) => (m === 'read' ? 'wyg' : 'read'))
+  }, [])
+
+  const onForceSave = useCallback(() => {
+    // Flush whichever editor is mounted, then refresh the status bar timestamp
+    // so users get visible feedback that ⌘S registered (autosave usually has
+    // already covered this, but the keypress still wants confirmation).
+    if (mode === 'source') sourceEditorRef.current?.forceSave()
+    else editorRef.current?.forceSave()
+    setSavingAt(Date.now())
+  }, [mode])
 
   useShortcuts({
     onNew: () => docs.createDoc(),
     onExport,
+    onForceSave,
     onToggleSidebar: () => setSidebarOpen((v) => !v),
     onFocusSearch,
+    onQuickOpen: () => setQuickOpen(true),
     onToggleSource,
+    onToggleRead,
   })
 
   if (!docs.ready) {
@@ -192,14 +242,16 @@ export default function App() {
           activeId={docs.activeId}
           onSelect={docs.setActiveId}
           onCreate={() => docs.createDoc()}
-          onDelete={(id) => docs.removeDoc(id)}
+          onDelete={onDeleteDoc}
+          onRename={docs.renameDoc}
         />
       )}
       <main className="editor-pane">
         <div className="editor-root">
-          {sourceMode ? (
+          {mode === 'source' ? (
             <SourceEditor
               key={`${docs.activeDoc.id}-src`}
+              ref={sourceEditorRef}
               docId={docs.activeDoc.id}
               initialContent={seedContent}
               onContentUpdate={onContentUpdate}
@@ -213,13 +265,16 @@ export default function App() {
               initialContent={seedContent}
               onContentUpdate={onContentUpdate}
               onSave={onSaveDoc}
+              onActiveHeadingChange={setActiveHeading}
+              readOnly={mode === 'read'}
             />
           )}
         </div>
       </main>
-      {!sourceMode && (
+      {mode !== 'source' && (
         <Outline
           items={outlineItems}
+          activeIndex={activeHeading}
           onJump={(it) => editorRef.current?.scrollToHeading(it.index)}
         />
       )}
@@ -227,12 +282,28 @@ export default function App() {
         savedAt={savingAt}
         wordCount={countWords(docs.activeDoc.content)}
         theme={theme}
-        sourceMode={sourceMode}
+        mode={mode}
         onToggleTheme={onToggleTheme}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        onToggleSource={onToggleSource}
+        onSetMode={setMode}
         onExport={onExport}
       />
+      {quickOpen && (
+        <QuickOpen
+          docs={docs.docs}
+          onSelect={docs.setActiveId}
+          onClose={() => setQuickOpen(false)}
+        />
+      )}
+      {pendingDelete && (
+        <Toast
+          message={`Deleted "${pendingDelete.doc.title}"`}
+          actionLabel="Undo"
+          onAction={onUndoDelete}
+          onDismiss={() => setPendingDelete(null)}
+        />
+      )}
+      <OnboardingCard />
     </div>
   )
 }

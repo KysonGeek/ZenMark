@@ -133,6 +133,13 @@ export const activeSourceBlock = $prose((ctx) => {
         if (!focused) {
           return prev.activePos == null ? prev : { activePos: null }
         }
+        // Read-only view: never swap into source mode. Otherwise a user who
+        // drags to select text would see headings/paragraphs collapse into
+        // raw markdown ("# foo", "**bold**"), and the clipboard would copy
+        // those marker characters along with the visible text.
+        if (viewRef && !viewRef.editable) {
+          return prev.activePos == null ? prev : { activePos: null }
+        }
         // Otherwise the active block is derived from the new selection's
         // current textblock. Using the *new* state's selection (post-tr)
         // keeps us honest about where the caret ended up after any mapping.

@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
+import type { Theme } from '../lib/theme'
 
 interface Props {
   savedAt: number | null
   wordCount: number
+  theme: Theme
+  onToggleTheme: () => void
+  onToggleSidebar: () => void
+  onExport: () => void
 }
 
-export function StatusBar({ savedAt, wordCount }: Props) {
+export function StatusBar({ savedAt, wordCount, theme, onToggleTheme, onToggleSidebar, onExport }: Props) {
   const [, setTick] = useState(0)
 
-  // Refresh "saved Xs ago" label every 5s.
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => t + 1), 5000)
     return () => window.clearInterval(id)
@@ -19,7 +23,9 @@ export function StatusBar({ savedAt, wordCount }: Props) {
       <span>{wordCount} {wordCount === 1 ? 'word' : 'words'}</span>
       <span>{savedAt ? `saved ${formatAgo(savedAt)}` : 'unsaved'}</span>
       <span className="spacer" />
-      <span style={{ opacity: 0.7 }}>md.qixin.ch</span>
+      <button onClick={onExport} title="Export current doc (⌘S)">Export</button>
+      <button onClick={onToggleTheme} title="Toggle theme">{theme === 'dark' ? '☀' : '☾'}</button>
+      <button onClick={onToggleSidebar} title="Toggle sidebar (⌘\\)">⌘\</button>
     </footer>
   )
 }

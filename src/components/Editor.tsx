@@ -1,5 +1,6 @@
 import { Crepe } from '@milkdown/crepe'
 import { useEffect, useRef } from 'react'
+import { syntaxOnCurrentBlock } from '../lib/syntaxOnCurrentBlock'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import '../styles/editor-overrides.css'
@@ -28,6 +29,8 @@ export function Editor({ docId, initialContent, onContentUpdate, onSave }: Props
       root: hostRef.current,
       defaultValue: initialContent,
     })
+    // Register the "show markdown source on current line" plugin before create().
+    crepe.editor.use(syntaxOnCurrentBlock)
     crepe.on((listener) => {
       listener.markdownUpdated((_ctx, md) => {
         latestRef.current = md

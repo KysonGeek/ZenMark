@@ -22,3 +22,17 @@
   padding: 1px 4px;
   border-radius: 3px;
 }
+
+/* Inline markdown source markers — shown only on the cursor's current block.
+   Rendered by the syntaxOnCurrentBlock ProseMirror plugin via widget decorations. */
+.editor-host .md-marker {
+  color: var(--text-muted);
+  opacity: 0.55;
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+  user-select: none;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}

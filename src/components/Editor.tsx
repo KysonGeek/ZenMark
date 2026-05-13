@@ -1,4 +1,4 @@
-import { Crepe } from '@milkdown/crepe'
+import { Crepe, CrepeFeature } from '@milkdown/crepe'
 import { editorStateCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/core'
 import { insertImageInputRule, remarkPreserveEmptyLinePlugin } from '@milkdown/preset-commonmark'
 import { Selection } from '@milkdown/prose/state'
@@ -207,9 +207,35 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     }
     flushRef.current = flush
 
+    // Track the most recently clicked code-block copy button so the
+     // CodeMirror feature's onCopy callback (which only receives the copied
+     // text) can swap its label to "Copied" as visual confirmation.
+    let lastCopyButton: HTMLButtonElement | null = null
+    const trackCopyButton = (event: Event) => {
+      const btn = (event.target as HTMLElement | null)?.closest?.('.copy-button')
+      if (btn) lastCopyButton = btn as HTMLButtonElement
+    }
+    host.addEventListener('click', trackCopyButton, true)
+
     const crepe = new Crepe({
       root: hostRef.current,
       defaultValue: initialContent,
+      featureConfigs: {
+        [CrepeFeature.CodeMirror]: {
+          onCopy: () => {
+            const btn = lastCopyButton
+            if (!btn) return
+            const textNode = Array.from(btn.childNodes).find(
+              (n) => n.nodeType === Node.TEXT_NODE,
+            ) as Text | null
+            if (!textNode) return
+            textNode.data = 'Copied!'
+            window.setTimeout(() => {
+              if (textNode.isConnected) textNode.data = 'Copy'
+            }, 2000)
+          },
+        },
+      },
     })
     crepeRef.current = crepe
     // Force resource-style links on serialization. Without this, mdast-util-to-
@@ -349,6 +375,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       flush()
       host.removeEventListener('mousedown', onHostMouseDown, true)
       host.removeEventListener('click', onHostMouseDown, true)
+      host.removeEventListener('click', trackCopyButton, true)
       editorRoot?.removeEventListener('click', onHostClick)
       window.removeEventListener('keydown', updateModKeyClass)
       window.removeEventListener('keyup', updateModKeyClass)

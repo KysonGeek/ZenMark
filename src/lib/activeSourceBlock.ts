@@ -44,13 +44,21 @@ const SUPPORTED_BLOCKS = new Set(['paragraph', 'heading'])
 function findActiveBlockPos(state: EditorState): number | null {
   const { $from } = state.selection
   if ($from.depth === 0) return null
+  let supportedDepth: number | null = null
   for (let depth = $from.depth; depth >= 1; depth--) {
-    const node = $from.node(depth)
-    if (SUPPORTED_BLOCKS.has(node.type.name)) {
-      return $from.before(depth)
+    const name = $from.node(depth).type.name
+    // A table cell is rich-content: replacing its paragraph with raw
+    // markdown text mid-edit breaks IME composition (the second-keystroke
+    // Chinese character would land on a node that was just torn down).
+    // Walk to the doc root to confirm no table ancestor before promoting
+    // the inner paragraph to "active" — the innermost match wins for
+    // non-table contexts, matching the prior behavior.
+    if (name === 'table_cell' || name === 'table_header') return null
+    if (supportedDepth == null && SUPPORTED_BLOCKS.has(name)) {
+      supportedDepth = depth
     }
   }
-  return null
+  return supportedDepth == null ? null : $from.before(supportedDepth)
 }
 
 /// True iff a block is currently rendered as raw markdown source. Editor.tsx

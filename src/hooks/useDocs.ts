@@ -136,14 +136,14 @@ export function useDocs(): UseDocsApi {
 
   const removeDoc = useCallback(async (id: string): Promise<{ docs: Doc[]; placeholderId: string | null }> => {
     const all = await listDocs()
-    const ids = collectSubtreeIds(all, id)
-    const snapshot = all.filter((d) => ids.includes(d.id))
+    const ids = new Set(collectSubtreeIds(all, id))
+    const snapshot = all.filter((d) => ids.has(d.id))
     for (const did of ids) await deleteDoc(did)
     const remaining = await listDocs()
     setDocs(remaining)
     let placeholderId: string | null = null
     // The active doc may itself be a descendant of the deleted root.
-    if (activeId !== null && ids.includes(activeId)) {
+    if (activeId !== null && ids.has(activeId)) {
       const next = remaining[0]?.id ?? null
       if (next) setActiveId(next)
       else placeholderId = await createDoc()
@@ -151,13 +151,13 @@ export function useDocs(): UseDocsApi {
     return { docs: snapshot, placeholderId }
   }, [activeId, createDoc, setActiveId])
 
-  const restoreDoc = useCallback(async (docs: Doc[]) => {
-    for (const d of docs) await putDoc(d)
+  const restoreDoc = useCallback(async (snapshot: Doc[]) => {
+    for (const d of snapshot) await putDoc(d)
     await refresh()
     // Re-activate the subtree root: the snapshot member whose parent is not
     // itself part of the snapshot.
-    const snapshotIds = new Set(docs.map((d) => d.id))
-    const root = docs.find((d) => d.parentId === null || !snapshotIds.has(d.parentId)) ?? docs[0]
+    const snapshotIds = new Set(snapshot.map((d) => d.id))
+    const root = snapshot.find((d) => d.parentId === null || !snapshotIds.has(d.parentId)) ?? snapshot[0]
     if (root) setActiveId(root.id)
   }, [refresh, setActiveId])
 

@@ -8,6 +8,7 @@ import { SourceEditor, type SourceEditorHandle } from './components/SourceEditor
 import { StatusBar } from './components/StatusBar'
 import { Toast } from './components/Toast'
 import type { Doc } from './lib/storage'
+import { findSubtreeRoot } from './lib/tree'
 import { useDocs } from './hooks/useDocs'
 import { useShortcuts } from './hooks/useShortcuts'
 import { downloadMarkdown } from './lib/ioFile'
@@ -42,10 +43,10 @@ export default function App() {
   const [liveContent, setLiveContent] = useState<string>('')
   const [activeHeading, setActiveHeading] = useState<number>(-1)
   const [quickOpen, setQuickOpen] = useState(false)
-  // Snapshot of the most recently deleted doc plus any placeholder we had to
-  // spin up (when the user deleted the last doc). Drives the Undo toast.
+  // Snapshot of the most recently deleted subtree plus any placeholder we had
+  // to spin up (when the user deleted the last doc). Drives the Undo toast.
   const [pendingDelete, setPendingDelete] = useState<{
-    doc: Doc
+    docs: Doc[]
     placeholderId: string | null
   } | null>(null)
   const editorRef = useRef<EditorHandle>(null)
@@ -142,17 +143,14 @@ export default function App() {
   }, [activeDocId])
 
   const onDeleteDoc = useCallback(async (id: string) => {
-    // Snapshot before delete so Undo can resurrect the doc with its original
-    // id and timestamps intact.
-    const snapshot = docs.docs.find((d) => d.id === id)
-    if (!snapshot) return
-    const { placeholderId } = await docs.removeDoc(id)
-    setPendingDelete({ doc: snapshot, placeholderId })
+    const result = await docs.removeDoc(id)
+    if (result.docs.length === 0) return
+    setPendingDelete(result)
   }, [docs])
 
   const onUndoDelete = useCallback(async () => {
     if (!pendingDelete) return
-    await docs.restoreDoc(pendingDelete.doc)
+    await docs.restoreDoc(pendingDelete.docs)
     // Roll back the blank placeholder we may have created on delete.
     if (pendingDelete.placeholderId) {
       await docs.removeDoc(pendingDelete.placeholderId)
@@ -239,11 +237,14 @@ export default function App() {
       {sidebarOpen && (
         <Sidebar
           docs={docs.docs}
+          tree={docs.tree}
           activeId={docs.activeId}
           onSelect={docs.setActiveId}
           onCreate={() => docs.createDoc()}
+          onCreateChild={(parentId) => docs.createDoc('# Untitled\n\n', parentId)}
           onDelete={onDeleteDoc}
           onRename={docs.renameDoc}
+          onMove={docs.moveDoc}
         />
       )}
       <main className="editor-pane">
@@ -295,14 +296,21 @@ export default function App() {
           onClose={() => setQuickOpen(false)}
         />
       )}
-      {pendingDelete && (
-        <Toast
-          message={`Deleted "${pendingDelete.doc.title}"`}
-          actionLabel="Undo"
-          onAction={onUndoDelete}
-          onDismiss={() => setPendingDelete(null)}
-        />
-      )}
+      {pendingDelete && (() => {
+        const root = findSubtreeRoot(pendingDelete.docs)!
+        const extra = pendingDelete.docs.length - 1
+        const message = extra > 0
+          ? `Deleted "${root.title}" and ${extra} sub-page${extra === 1 ? '' : 's'}`
+          : `Deleted "${root.title}"`
+        return (
+          <Toast
+            message={message}
+            actionLabel="Undo"
+            onAction={onUndoDelete}
+            onDismiss={() => setPendingDelete(null)}
+          />
+        )
+      })()}
       <OnboardingCard />
     </div>
   )

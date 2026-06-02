@@ -208,6 +208,44 @@ body { background: var(--bg); color: var(--text); }
 }
 .doc-item:hover .doc-delete { visibility: visible; }
 .doc-delete:hover { color: var(--danger); background: rgba(220, 38, 38, 0.1); }
+
+/* Page tree */
+.tree-node { list-style: none; }
+/* Nested doc-list inside a tree node: depth is managed by inline paddingLeft,
+   so suppress the horizontal padding that the root .doc-list rule adds. */
+.tree-node .doc-list { margin: 0; padding: 0; }
+
+.tree-toggle {
+  flex: 0 0 auto;
+  width: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+}
+/* visibility:hidden keeps the space so titles align on leaf rows */
+.tree-toggle.invisible { visibility: hidden; cursor: default; }
+
+/* doc-add: hide until row hover (mirrors existing doc-delete visibility pattern) */
+.doc-add {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 4px;
+  border-radius: 4px;
+  visibility: hidden;
+}
+.doc-item:hover .doc-add { visibility: visible; }
+.doc-add:hover { color: var(--accent); background: var(--accent-bg); }
+
+/* Drag-and-drop affordances */
+.doc-item.drop-into { outline: 2px solid var(--accent); outline-offset: -2px; }
+.doc-item.drop-before { box-shadow: inset 0 2px 0 0 var(--accent); }
+.doc-item.drop-after  { box-shadow: inset 0 -2px 0 0 var(--accent); }
 .app[data-dragover='true']::after {
   content: 'Drop .md to import';
   position: fixed; inset: 16px;

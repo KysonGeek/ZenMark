@@ -116,6 +116,10 @@ export async function moveDoc(
   const db = await getDb()
   const doc = await db.get('documents', id)
   if (!doc) return
+  const oldParentId = doc.parentId
   await db.put('documents', { ...doc, parentId: newParentId, order: newOrder })
   await renumberSiblings(db, newParentId)
+  if (oldParentId !== newParentId) {
+    await renumberSiblings(db, oldParentId)
+  }
 }

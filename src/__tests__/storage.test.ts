@@ -70,6 +70,17 @@ describe('moveDoc', () => {
     expect(q?.order).toBe(0)
   })
 
+  it('renumbers the source group densely after a reparent', async () => {
+    await putDoc({ id: 'r0', title: 'R0', parentId: null, order: 0, ...base })
+    await putDoc({ id: 'r1', title: 'R1', parentId: null, order: 1, ...base })
+    await putDoc({ id: 'r2', title: 'R2', parentId: null, order: 2, ...base })
+    await putDoc({ id: 'p', title: 'P', parentId: null, order: 3, ...base })
+    // Move r1 (middle of root group) under p.
+    await moveDoc('r1', 'p', 0)
+    const roots = (await listDocs()).filter((d) => d.parentId === null).sort((a, b) => a.order - b.order)
+    expect(roots.map((d) => [d.id, d.order])).toEqual([['r0', 0], ['r2', 1], ['p', 2]])
+  })
+
   it('is a no-op for a missing id', async () => {
     await moveDoc('ghost', null, 0)
     expect(await listDocs()).toEqual([])

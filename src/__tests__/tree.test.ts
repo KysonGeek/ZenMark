@@ -99,4 +99,16 @@ describe('computeMoveTarget', () => {
   it('returns null for an unknown target', () => {
     expect(computeMoveTarget(docs, 'a', 'ghost', 'into')).toBeNull()
   })
+
+  it('rejects dropping a node before itself', () => {
+    expect(computeMoveTarget(docs, 'b', 'b', 'before')).toBeNull()
+  })
+
+  it('rejects dropping a node after itself', () => {
+    expect(computeMoveTarget(docs, 'b', 'b', 'after')).toBeNull()
+  })
+
+  it('rejects dropping a node before its own child (cycle via before)', () => {
+    expect(computeMoveTarget(docs, 'a', 'a1', 'before')).toBeNull()
+  })
 })

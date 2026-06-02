@@ -179,6 +179,10 @@ export function useDocs(): UseDocsApi {
 
   const importDoc = useCallback((content: string) => createDoc(content), [createDoc])
 
+  // Reparent/reorder a page. NOTE: cycle-prevention (not dropping a node into
+  // its own subtree) is the caller's responsibility — Sidebar routes every move
+  // through `computeMoveTarget`, which rejects invalid drops. Direct callers
+  // must guard themselves.
   const moveDoc = useCallback(async (id: string, parentId: string | null, order: number) => {
     await storageMoveDoc(id, parentId, order)
     await refresh()

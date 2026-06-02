@@ -92,3 +92,60 @@
   color: var(--text-muted);
   white-space: pre-wrap;
 }
+
+/* A heading swapped into source mode must keep the rendered heading's vertical
+   metrics, otherwise the block collapses to paragraph size and the text jumps
+   up when the user clicks in to edit (see activeSourceBlock's decorations).
+   We mirror Crepe's per-level font-size / line-height / margin-top (theme/
+   common/reset.css) and the h1/h2 padding-bottom + border from above, and drop
+   the source monospace in favor of the title font so the only visible change is
+   the `#` markers appearing. The extra .md-source-h* class raises specificity
+   above Crepe's `.milkdown .ProseMirror p` rule so these win.
+
+   Color/weight must also match the rendered heading or the text would flash on
+   swap: rendered h1-h3 use the full --text color (so source h1-h3 set it too,
+   overriding .md-source-line's muted color), while rendered h4-h6 are already
+   muted (matching .md-source-line) and stay 600 weight (so source h6 must NOT
+   force 700 the way Crepe's reset does). */
+.editor-host .md-source-line.md-source-heading {
+  font-family: var(--crepe-font-title);
+  font-weight: 600;
+  padding: 2px 0;
+}
+.editor-host .md-source-line.md-source-h1 {
+  font-size: 42px;
+  line-height: 50px;
+  margin-top: 32px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.editor-host .md-source-line.md-source-h2 {
+  font-size: 36px;
+  line-height: 44px;
+  margin-top: 28px;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+}
+.editor-host .md-source-line.md-source-h3 {
+  font-size: 32px;
+  line-height: 40px;
+  margin-top: 24px;
+  color: var(--text);
+}
+.editor-host .md-source-line.md-source-h4 {
+  font-size: 28px;
+  line-height: 36px;
+  margin-top: 20px;
+}
+.editor-host .md-source-line.md-source-h5 {
+  font-size: 24px;
+  line-height: 32px;
+  margin-top: 16px;
+}
+.editor-host .md-source-line.md-source-h6 {
+  font-size: 18px;
+  line-height: 28px;
+  margin-top: 16px;
+}

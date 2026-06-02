@@ -16,6 +16,7 @@ import {
   schemaCtx,
   serializerCtx,
 } from '@milkdown/core'
+import { Fragment } from '@milkdown/prose/model'
 import type { Node as PMNode, Schema } from '@milkdown/prose/model'
 import {
   Plugin,
@@ -43,22 +44,15 @@ const SUPPORTED_BLOCKS = new Set(['paragraph', 'heading'])
 
 function findActiveBlockPos(state: EditorState): number | null {
   const { $from } = state.selection
-  if ($from.depth === 0) return null
-  let supportedDepth: number | null = null
-  for (let depth = $from.depth; depth >= 1; depth--) {
-    const name = $from.node(depth).type.name
-    // A table cell is rich-content: replacing its paragraph with raw
-    // markdown text mid-edit breaks IME composition (the second-keystroke
-    // Chinese character would land on a node that was just torn down).
-    // Walk to the doc root to confirm no table ancestor before promoting
-    // the inner paragraph to "active" — the innermost match wins for
-    // non-table contexts, matching the prior behavior.
-    if (name === 'table_cell' || name === 'table_header') return null
-    if (supportedDepth == null && SUPPORTED_BLOCKS.has(name)) {
-      supportedDepth = depth
-    }
-  }
-  return supportedDepth == null ? null : $from.before(supportedDepth)
+  // Only promote a textblock to source mode when the caret sits DIRECTLY under
+  // the doc root (depth 1). A paragraph/heading nested deeper lives inside a
+  // wrapper — blockquote, list item, table cell — whose marker (`>`, `-`, `1.`)
+  // a flat source paragraph cannot represent; collapsing it to marker-less text
+  // would hide the marker and (for table cells) break IME composition. Leave all
+  // such nested content rich.
+  if ($from.depth !== 1) return null
+  const block = $from.node(1)
+  return SUPPORTED_BLOCKS.has(block.type.name) ? $from.before(1) : null
 }
 
 /// True iff a block is currently rendered as raw markdown source. Editor.tsx
@@ -104,9 +98,18 @@ export const activeSourceBlock = $prose((ctx) => {
       // so PM won't run apply() on its own — we dispatch a no-op transaction
       // to force one. The apply() body sees `hasFocus() === false` and
       // clears activePos, which appendTransaction then renders back.
-      const onBlur = () => {
+      const onBlur = (event: FocusEvent) => {
         if (!viewRef) return
         if (KEY.getState(viewRef.state)?.activePos == null) return
+        // Ignore blurs where focus moves to a widget that is still part of the
+        // editor — the link tooltip's URL input, an image-block caption, etc.
+        // (Crepe mounts these as siblings/descendants of .ProseMirror.) The user
+        // is still editing this block; collapsing its raw source out from under
+        // them mid-edit would be jarring. Only render back when focus truly
+        // leaves the editor surface.
+        const root = viewRef.dom.closest('.milkdown') ?? viewRef.dom.parentElement
+        const next = event.relatedTarget as Node | null
+        if (root && next && root.contains(next)) return
         viewRef.dispatch(viewRef.state.tr.setMeta('addToHistory', false))
       }
       const onFocus = () => {
@@ -161,7 +164,21 @@ export const activeSourceBlock = $prose((ctx) => {
       const prevPos = KEY.getState(oldState)?.activePos ?? null
       const nextPos = KEY.getState(newState)?.activePos ?? null
 
-      if (nextPos === prevPos) return null
+      // An inputRule can upgrade the active block in place without moving it:
+      // typing "# " on a line turns the source paragraph into a heading at the
+      // same position, consuming the `#` markers and rendering the heading.
+      // The caret is still inside it, so for consistency with clicking an
+      // existing heading (which shows the `#`) we re-enter source mode to bring
+      // the markers back. The position-change guard below would otherwise bail.
+      const activeNode = nextPos == null ? null : newState.doc.nodeAt(nextPos)
+      const upgradedInPlace =
+        nextPos != null &&
+        nextPos === prevPos &&
+        activeNode != null &&
+        activeNode.type.name !== 'paragraph' &&
+        SUPPORTED_BLOCKS.has(activeNode.type.name)
+
+      if (nextPos === prevPos && !upgradedInPlace) return null
 
       const schema = ctx.get(schemaCtx)
       const serializer = ctx.get(serializerCtx)
@@ -186,14 +203,18 @@ export const activeSourceBlock = $prose((ctx) => {
         // alone in that case.
         if (node && node.type.name === 'paragraph') {
           const text = node.textContent
-          const rendered = parseLineToBlock(parser, schema, text)
-          if (rendered) {
+          // The source line can hold a hardbreak (Shift+Enter), so its text may
+          // span multiple markdown blocks (e.g. "# A\n# B"). Render ALL of them
+          // back, not just the first, or the trailing blocks would be silently
+          // dropped from the document.
+          const rendered = parseLineToBlocks(parser, schema, text)
+          if (rendered && rendered.childCount > 0) {
             const before = workingPrev
             const after = workingPrev + node.nodeSize
             const oldSize = node.nodeSize
             tr = tr.replaceWith(before, after, rendered)
             if (workingNext != null && workingNext > before) {
-              workingNext += rendered.nodeSize - oldSize
+              workingNext += rendered.size - oldSize
             }
           }
         }
@@ -204,7 +225,13 @@ export const activeSourceBlock = $prose((ctx) => {
       if (workingNext != null) {
         const node = tr.doc.nodeAt(workingNext)
         if (node && SUPPORTED_BLOCKS.has(node.type.name)) {
-          const md = serializeBlock(serializer, schema, node)
+          let md = serializeBlock(serializer, schema, node)
+          // An empty heading serializes to just its marker run ("#") with no
+          // trailing space, so the caret would land at "#" and the next
+          // keystroke would make "#x" — which re-parses as a paragraph, not a
+          // heading. Keep the space so an empty heading stays a heading as the
+          // user types (this is the just-typed-"# " in-place upgrade case).
+          if (node.type.name === 'heading' && /^#{1,6}$/.test(md)) md += ' '
           const sourceParagraph = buildSourceParagraph(schema, md)
           if (sourceParagraph) {
             const before = workingNext
@@ -232,9 +259,21 @@ export const activeSourceBlock = $prose((ctx) => {
         const pos = ps.activePos
         const node = state.doc.nodeAt(pos)
         if (!node) return null
+        // Keep the source line occupying the same vertical box as the block it
+        // replaced. A rendered heading carries a large font-size / line-height /
+        // margin-top that a plain source paragraph lacks, so without this the
+        // block collapses and the text visibly jumps up on entering edit mode —
+        // most noticeably on the first line, where the heading's margin-top is
+        // the entire gap from the top of the editor. The leading `#`-run of the
+        // source text gives us the heading level; an unescaped ATX marker can
+        // only come from a real heading because the serializer escapes a literal
+        // leading `#` in paragraph text as `\#`.
+        let cls = 'md-source-line'
+        const heading = /^(#{1,6})\s/.exec(node.textContent)
+        if (heading) cls += ` md-source-heading md-source-h${heading[1].length}`
         return DecorationSet.create(state.doc, [
           Decoration.node(pos, pos + node.nodeSize, {
-            class: 'md-source-line',
+            class: cls,
           }),
         ])
       },
@@ -242,23 +281,41 @@ export const activeSourceBlock = $prose((ctx) => {
   })
 })
 
+// Leading patterns that commonmark would promote a plain paragraph into a
+// different block type on re-parse (heading, blockquote, bullet/ordered list,
+// thematic break, fenced code). Used to keep serializeBlock's raw fast path
+// from emitting text that round-trips to the wrong node type.
+const BLOCK_MARKER_RE =
+  /^ {0,3}(#{1,6}(\s|$)|>|[-+*](\s|$)|\d{1,9}[.)](\s|$)|[-_*]([ \t]*[-_*]){2,}[ \t]*$|`{3,}|~{3,})/
+
+function startsWithBlockMarker(text: string): boolean {
+  return BLOCK_MARKER_RE.test(text.split('\n', 1)[0])
+}
+
 function serializeBlock(
   serializer: (node: PMNode) => string,
   schema: Schema,
   node: PMNode,
 ): string {
-  // Fast path: a plain paragraph whose children are all unmarked text nodes
-  // is already in "source-string" form (e.g. it came from splitting a source
-  // paragraph at the cursor, leaving raw "# hello" behind). Running it
-  // through the serializer would re-escape leading `#`/`*`/etc. into `\#`,
-  // which is not what the user typed. Just hand back its textContent.
+  // Fast path: a plain paragraph whose children are all unmarked text nodes is
+  // already in "source-string" form, so hand back its textContent instead of
+  // re-escaping mid-line markers the user typed verbatim (e.g. "use * for a
+  // bullet" must not be shown as "use \* for a bullet").
+  //
+  // EXCEPT when the text *leads* with a block-level marker (#, -, >, 1., ---,
+  // ```): returning it raw would make parseLineToBlock re-parse the paragraph
+  // into a heading/list/quote/etc. on swap-out, silently changing a genuine
+  // paragraph's type (a paragraph holding the literal text "# foo", e.g. loaded
+  // from the escaped markdown "\# foo", would become a real H1). In that case
+  // fall through to the escaping serializer so the source ("\# foo") faithfully
+  // round-trips back to a paragraph.
   if (node.type.name === 'paragraph') {
     let plain = true
     node.content.forEach((child) => {
       if (!plain) return
       if (!child.isText || child.marks.length > 0) plain = false
     })
-    if (plain) return node.textContent
+    if (plain && !startsWithBlockMarker(node.textContent)) return node.textContent
   }
   // Commonmark's toMarkdown runners (heading level #, marks **, autolink
   // resource-link heuristics, etc.) rely on the block being inside a doc
@@ -274,18 +331,23 @@ function serializeBlock(
   }
 }
 
-function parseLineToBlock(
+function parseLineToBlocks(
   parser: (text: string) => PMNode,
   schema: Schema,
   text: string,
-): PMNode | null {
+): Fragment | null {
   try {
     if (text.trim().length === 0) {
       // Empty source paragraph -> empty paragraph.
-      return schema.nodes.paragraph!.create()
+      return Fragment.from(schema.nodes.paragraph!.create())
     }
     const doc = parser(text)
-    return doc.firstChild ?? schema.nodes.paragraph!.create()
+    // Return every parsed block, not just the first — the source text may be a
+    // multi-block construct (hardbreak-joined headings, blank-line-separated
+    // paragraphs, etc.).
+    return doc.content.childCount > 0
+      ? doc.content
+      : Fragment.from(schema.nodes.paragraph!.create())
   } catch (err) {
     console.error('activeSourceBlock: parse failed', err)
     return null

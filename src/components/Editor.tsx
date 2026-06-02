@@ -3,7 +3,8 @@ import { editorStateCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkd
 import { insertImageInputRule, remarkPreserveEmptyLinePlugin } from '@milkdown/preset-commonmark'
 import { Selection } from '@milkdown/prose/state'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { activeSourceBlock, exitSourceMode, isInSourceMode } from '../lib/activeSourceBlock'
+import { activeSourceBlock, isInSourceMode } from '../lib/activeSourceBlock'
+import { readPersistableMarkdown } from '../lib/readPersistableMarkdown'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/frame.css'
 import '../styles/editor-overrides.css'
@@ -111,9 +112,14 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
 
     // Cmd/Ctrl/Alt + click on an <a> opens the URL in a new tab. We listen on
     // the host element at the capture phase so we preempt Crepe's own link
-    // tooltip / edit handler (which otherwise swallows the click and places
-    // the caret in edit mode).
-    const onHostMouseDown = (event: MouseEvent) => {
+    // tooltip / edit handler (which otherwise swallows the click and places the
+    // caret in edit mode). A mod-click dispatches BOTH mousedown and a
+    // synthesized click, so we open on mousedown and merely swallow the trailing
+    // click (preventDefault on mousedown does not stop the <a> from navigating).
+    // The flag keeps a single user gesture from opening two tabs while still
+    // handling keyboard activation, which arrives as a click with no mousedown.
+    let modOpenHandled = false
+    const onHostModClick = (event: MouseEvent) => {
       if (!(event.metaKey || event.ctrlKey || event.altKey)) return
       const target = event.target as HTMLElement | null
       const anchor = target?.closest?.('a') as HTMLAnchorElement | null
@@ -122,10 +128,18 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       if (!href) return
       event.preventDefault()
       event.stopPropagation()
-      window.open(href, '_blank', 'noopener,noreferrer')
+      if (event.type === 'mousedown') {
+        modOpenHandled = true
+        window.open(href, '_blank', 'noopener,noreferrer')
+      } else {
+        // click: only open if no preceding mousedown already did (keyboard
+        // activation); otherwise just consume it to block in-tab navigation.
+        if (!modOpenHandled) window.open(href, '_blank', 'noopener,noreferrer')
+        modOpenHandled = false
+      }
     }
-    host.addEventListener('mousedown', onHostMouseDown, true)
-    host.addEventListener('click', onHostMouseDown, true)
+    host.addEventListener('mousedown', onHostModClick, true)
+    host.addEventListener('click', onHostModClick, true)
 
     // Clicking the blank area below the markdown content appends an empty
     // paragraph at the end (if the last line isn't already empty) and moves
@@ -134,6 +148,11 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     // below the editor are also captured.
     const editorRoot = host.parentElement
     const onHostClick = (event: MouseEvent) => {
+      // Read view is non-editable: never append/focus. ProseMirror's editable
+      // flag only blocks user input, not the programmatic dispatch below, so
+      // without this guard a click below the content would mutate (and focus)
+      // the read-only document.
+      if (readOnlyRef.current) return
       const crepe = crepeRef.current
       if (!crepe) return
       const proseMirror = host.querySelector('.ProseMirror') as HTMLElement | null
@@ -179,27 +198,24 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
     window.addEventListener('keydown', updateModKeyClass)
     window.addEventListener('keyup', updateModKeyClass)
     window.addEventListener('blur', clearModKeyClass)
-    // Force any active source-mode block back into rendered form before we
-    // read `latestRef` for persistence; otherwise we'd save e.g. "\# foo"
-    // (paragraph text with # escaped) instead of a real heading.
-    const renderActiveBlock = () => {
-      const crepe = crepeRef.current
-      if (!crepe) return
-      try {
-        crepe.editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx)
-          if (!view) return
-          if (isInSourceMode(view.state)) {
-            exitSourceMode(view)
-          }
-        })
-      } catch {
-        // Editor may not be mounted yet during early unmount; ignore.
-      }
-    }
-
+    // Persisting must reflect the *rendered* document, not the debounced
+    // markdownUpdated cache. While a block is in source mode that cache holds
+    // the escaped source form (e.g. "\# foo" instead of a heading), and the
+    // source→rich swap-back never refreshes it (those transactions are
+    // addToHistory:false, which Milkdown's listener skips). readPersistableMarkdown
+    // renders any active source block back and re-serializes synchronously —
+    // which also captures keystrokes still inside the listener's 200ms debounce
+    // window that the cache hasn't flushed yet.
     const flush = () => {
-      renderActiveBlock()
+      const crepe = crepeRef.current
+      if (crepe) {
+        try {
+          latestRef.current = readPersistableMarkdown(crepe)
+        } catch {
+          // Editor may not be mounted yet during early unmount; fall back to the
+          // last value the listener captured.
+        }
+      }
       if (latestRef.current !== savedRef.current) {
         savedRef.current = latestRef.current
         onSaveRef.current(docId, latestRef.current)
@@ -373,8 +389,8 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(
       // Flush any pending edits synchronously so doc switches and unmounts
       // don't drop the last keystrokes.
       flush()
-      host.removeEventListener('mousedown', onHostMouseDown, true)
-      host.removeEventListener('click', onHostMouseDown, true)
+      host.removeEventListener('mousedown', onHostModClick, true)
+      host.removeEventListener('click', onHostModClick, true)
       host.removeEventListener('click', trackCopyButton, true)
       editorRoot?.removeEventListener('click', onHostClick)
       window.removeEventListener('keydown', updateModKeyClass)

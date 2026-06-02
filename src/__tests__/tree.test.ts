@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Doc } from '../lib/storage'
-import { buildTree, collectSubtreeIds, nextOrder } from '../lib/tree'
+import { buildTree, collectSubtreeIds, computeMoveTarget, nextOrder } from '../lib/tree'
 
 function doc(id: string, parentId: string | null, order: number): Doc {
   return { id, title: id, content: '', createdAt: 0, updatedAt: 0, parentId, order }
@@ -65,5 +65,38 @@ describe('nextOrder', () => {
   it('returns max sibling order + 1', () => {
     const docs = [doc('a', 'p', 0), doc('b', 'p', 3), doc('c', null, 9)]
     expect(nextOrder(docs, 'p')).toBe(4)
+  })
+})
+
+describe('computeMoveTarget', () => {
+  const docs = [
+    doc('a', null, 0),
+    doc('b', null, 1),
+    doc('c', null, 2),
+    doc('a1', 'a', 0),
+  ]
+
+  it('before: keeps target parent, order just below target', () => {
+    expect(computeMoveTarget(docs, 'c', 'b', 'before')).toEqual({ parentId: null, order: 0.5 })
+  })
+
+  it('after: keeps target parent, order just above target', () => {
+    expect(computeMoveTarget(docs, 'a', 'b', 'after')).toEqual({ parentId: null, order: 1.5 })
+  })
+
+  it('into: target becomes parent, order appended after existing children', () => {
+    expect(computeMoveTarget(docs, 'b', 'a', 'into')).toEqual({ parentId: 'a', order: 1 })
+  })
+
+  it('rejects dropping a node onto itself', () => {
+    expect(computeMoveTarget(docs, 'a', 'a', 'into')).toBeNull()
+  })
+
+  it('rejects dropping a node into its own descendant (cycle)', () => {
+    expect(computeMoveTarget(docs, 'a', 'a1', 'into')).toBeNull()
+  })
+
+  it('returns null for an unknown target', () => {
+    expect(computeMoveTarget(docs, 'a', 'ghost', 'into')).toBeNull()
   })
 })

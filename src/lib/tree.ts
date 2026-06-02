@@ -62,3 +62,34 @@ export function nextOrder(docs: Doc[], parentId: string | null): number {
   if (siblings.length === 0) return 0
   return Math.max(...siblings.map((d) => d.order)) + 1
 }
+
+export type DropPosition = 'before' | 'after' | 'into'
+
+// Translate a drop gesture into a (parentId, order) for storage.moveDoc.
+// `order` may be fractional (e.g. target.order ± 0.5); storage renumbers the
+// sibling group to dense integers afterwards. Returns null for invalid drops
+// (onto self, into own subtree, or unknown target).
+export function computeMoveTarget(
+  docs: Doc[],
+  draggedId: string,
+  targetId: string,
+  position: DropPosition,
+): { parentId: string | null; order: number } | null {
+  if (draggedId === targetId) return null
+  const target = docs.find((d) => d.id === targetId)
+  if (!target) return null
+
+  const newParentId = position === 'into' ? target.id : target.parentId
+
+  // Cycle guard: cannot reparent a node beneath itself.
+  if (newParentId !== null && collectSubtreeIds(docs, draggedId).includes(newParentId)) {
+    return null
+  }
+
+  let order: number
+  if (position === 'into') order = nextOrder(docs, target.id)
+  else if (position === 'before') order = target.order - 0.5
+  else order = target.order + 0.5
+
+  return { parentId: newParentId, order }
+}

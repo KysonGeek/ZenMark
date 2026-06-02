@@ -1,5 +1,6 @@
+import { openDB } from 'idb'
 import { describe, expect, it } from 'vitest'
-import { deleteDoc, getDoc, listDocs, putDoc } from '../lib/storage'
+import { DB_NAME, __resetDbForTests, deleteDoc, getDoc, listDocs, putDoc } from '../lib/storage'
 
 describe('storage', () => {
   it('returns empty array when no docs exist', async () => {
@@ -13,34 +14,62 @@ describe('storage', () => {
       content: '# Test',
       createdAt: 1000,
       updatedAt: 1000,
+      parentId: null,
+      order: 0,
     }
     await putDoc(doc)
     expect(await getDoc('a1')).toEqual(doc)
   })
 
   it('listDocs returns docs ordered by updatedAt desc', async () => {
-    await putDoc({ id: 'a', title: 'A', content: 'a', createdAt: 1, updatedAt: 100 })
-    await putDoc({ id: 'b', title: 'B', content: 'b', createdAt: 2, updatedAt: 300 })
-    await putDoc({ id: 'c', title: 'C', content: 'c', createdAt: 3, updatedAt: 200 })
+    await putDoc({ id: 'a', title: 'A', content: 'a', createdAt: 1, updatedAt: 100, parentId: null, order: 0 })
+    await putDoc({ id: 'b', title: 'B', content: 'b', createdAt: 2, updatedAt: 300, parentId: null, order: 1 })
+    await putDoc({ id: 'c', title: 'C', content: 'c', createdAt: 3, updatedAt: 200, parentId: null, order: 2 })
     const ids = (await listDocs()).map((d) => d.id)
     expect(ids).toEqual(['b', 'c', 'a'])
   })
 
   it('putDoc overwrites an existing doc by id', async () => {
-    await putDoc({ id: 'x', title: 'old', content: 'old', createdAt: 1, updatedAt: 1 })
-    await putDoc({ id: 'x', title: 'new', content: 'new', createdAt: 1, updatedAt: 2 })
+    await putDoc({ id: 'x', title: 'old', content: 'old', createdAt: 1, updatedAt: 1, parentId: null, order: 0 })
+    await putDoc({ id: 'x', title: 'new', content: 'new', createdAt: 1, updatedAt: 2, parentId: null, order: 0 })
     const got = await getDoc('x')
     expect(got?.title).toBe('new')
     expect(got?.content).toBe('new')
   })
 
   it('deleteDoc removes a doc', async () => {
-    await putDoc({ id: 'k', title: 'k', content: 'k', createdAt: 1, updatedAt: 1 })
+    await putDoc({ id: 'k', title: 'k', content: 'k', createdAt: 1, updatedAt: 1, parentId: null, order: 0 })
     await deleteDoc('k')
     expect(await getDoc('k')).toBeUndefined()
   })
 
   it('getDoc returns undefined for missing id', async () => {
     expect(await getDoc('nope')).toBeUndefined()
+  })
+})
+
+describe('migration v1 -> v2', () => {
+  it('backfills parentId=null and dense order by updatedAt desc', async () => {
+    // Seed a legacy v1 database with no parentId/order.
+    const legacy = await openDB(DB_NAME, 1, {
+      upgrade(db) {
+        const s = db.createObjectStore('documents', { keyPath: 'id' })
+        s.createIndex('by-updatedAt', 'updatedAt')
+      },
+    })
+    await legacy.put('documents', { id: 'a', title: 'A', content: 'a', createdAt: 1, updatedAt: 100 })
+    await legacy.put('documents', { id: 'b', title: 'B', content: 'b', createdAt: 2, updatedAt: 300 })
+    legacy.close()
+    await __resetDbForTests()
+
+    // Opening via our module triggers the v2 upgrade.
+    const docs = await listDocs()
+    const a = docs.find((d) => d.id === 'a')!
+    const b = docs.find((d) => d.id === 'b')!
+    expect(a.parentId).toBe(null)
+    expect(b.parentId).toBe(null)
+    // updatedAt desc => b (300) first => order 0, a (100) => order 1
+    expect(b.order).toBe(0)
+    expect(a.order).toBe(1)
   })
 })

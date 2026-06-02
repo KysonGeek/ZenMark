@@ -10,6 +10,10 @@ export interface Doc {
   // content edits must not overwrite `title` with `deriveTitle(content)`.
   // Undefined / false = title is auto-derived from the first H1.
   titleOverridden?: boolean
+  // Parent page id; null = root level. Adjacency-list hierarchy.
+  parentId: string | null
+  // Position within the sibling group (same parentId). Kept dense (0,1,2,…).
+  order: number
 }
 
 interface MarkraDB extends DBSchema {
@@ -20,17 +24,30 @@ interface MarkraDB extends DBSchema {
   }
 }
 
-const DB_NAME = 'markra-web'
-const DB_VERSION = 1
+export const DB_NAME = 'markra-web'
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBPDatabase<MarkraDB>> | null = null
 
 function getDb() {
   if (!dbPromise) {
     dbPromise = openDB<MarkraDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        const store = db.createObjectStore('documents', { keyPath: 'id' })
-        store.createIndex('by-updatedAt', 'updatedAt')
+      async upgrade(db, oldVersion, _newVersion, tx) {
+        if (oldVersion < 1) {
+          const store = db.createObjectStore('documents', { keyPath: 'id' })
+          store.createIndex('by-updatedAt', 'updatedAt')
+        }
+        if (oldVersion < 2) {
+          // Backfill parentId/order onto pre-hierarchy docs. Preserve the old
+          // default ordering (updatedAt desc) as the initial root order.
+          const store = tx.objectStore('documents')
+          const all = await store.getAll()
+          all.sort((a, b) => b.updatedAt - a.updatedAt)
+          let i = 0
+          for (const doc of all) {
+            await store.put({ ...doc, parentId: doc.parentId ?? null, order: i++ })
+          }
+        }
       },
     })
   }

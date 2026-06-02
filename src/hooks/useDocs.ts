@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { deriveTitle } from '../lib/deriveTitle'
-import { type Doc, deleteDoc, getDoc, listDocs, putDoc } from '../lib/storage'
+import { type Doc, deleteDoc, getDoc, listDocs, putDoc, moveDoc as storageMoveDoc } from '../lib/storage'
+import { buildTree, collectSubtreeIds, nextOrder, type TreeNode } from '../lib/tree'
 
 const LAST_ID_KEY = 'markra.lastOpenedDocId'
 
@@ -29,23 +30,27 @@ Have fun.
 
 export interface UseDocsApi {
   docs: Doc[]
+  tree: TreeNode[]
   activeId: string | null
   activeDoc: Doc | null
   ready: boolean
   saveDoc: (docId: string, content: string) => Promise<void>
   error: string | null
   setActiveId: (id: string) => void
-  createDoc: (content?: string) => Promise<string>
-  // Returns the id of any blank placeholder we had to spin up because the
-  // user deleted the last remaining doc — undo can use it to clean up.
-  removeDoc: (id: string) => Promise<{ placeholderId: string | null }>
-  // Re-insert a previously-deleted doc with its original id/timestamps. Used
-  // by the Undo affordance on the delete toast.
-  restoreDoc: (doc: Doc) => Promise<void>
+  // Create a page. Pass parentId to create it as a child page.
+  createDoc: (content?: string, parentId?: string | null) => Promise<string>
+  // Cascade-deletes the page and its entire subtree. Returns a snapshot of
+  // every deleted doc (for whole-subtree Undo) plus any blank placeholder we
+  // had to create because the last remaining doc was deleted.
+  removeDoc: (id: string) => Promise<{ docs: Doc[]; placeholderId: string | null }>
+  // Re-insert a previously-deleted subtree with original ids/parentId/order.
+  restoreDoc: (docs: Doc[]) => Promise<void>
   // Rename a doc. Empty `title` reverts to the H1-derived title and clears
   // the override flag.
   renameDoc: (id: string, title: string) => Promise<void>
   importDoc: (content: string) => Promise<string>
+  // Reparent/reorder a page. parentId=null moves it to the root.
+  moveDoc: (id: string, parentId: string | null, order: number) => Promise<void>
 }
 
 export function useDocs(): UseDocsApi {
@@ -72,6 +77,8 @@ export function useDocs(): UseDocsApi {
             content: WELCOME_CONTENT,
             createdAt: now,
             updatedAt: now,
+            parentId: null,
+            order: 0,
           })
           all = await listDocs()
         }
@@ -93,15 +100,18 @@ export function useDocs(): UseDocsApi {
     localStorage.setItem(LAST_ID_KEY, id)
   }, [])
 
-  const createDoc = useCallback(async (content = '# Untitled\n\n') => {
+  const createDoc = useCallback(async (content = '# Untitled\n\n', parentId: string | null = null) => {
     const id = crypto.randomUUID()
     const now = Date.now()
+    const all = await listDocs()
     await putDoc({
       id,
       title: deriveTitle(content),
       content,
       createdAt: now,
       updatedAt: now,
+      parentId,
+      order: nextOrder(all, parentId),
     })
     await refresh()
     setActiveId(id)
@@ -124,27 +134,31 @@ export function useDocs(): UseDocsApi {
     await refresh()
   }, [refresh])
 
-  const removeDoc = useCallback(async (id: string): Promise<{ placeholderId: string | null }> => {
-    await deleteDoc(id)
+  const removeDoc = useCallback(async (id: string): Promise<{ docs: Doc[]; placeholderId: string | null }> => {
+    const all = await listDocs()
+    const ids = collectSubtreeIds(all, id)
+    const snapshot = all.filter((d) => ids.includes(d.id))
+    for (const did of ids) await deleteDoc(did)
     const remaining = await listDocs()
     setDocs(remaining)
     let placeholderId: string | null = null
-    if (activeId === id) {
+    // The active doc may itself be a descendant of the deleted root.
+    if (activeId !== null && ids.includes(activeId)) {
       const next = remaining[0]?.id ?? null
       if (next) setActiveId(next)
-      else {
-        // No docs left → create a fresh blank one. Track it so undo can
-        // remove it after restoring the original doc.
-        placeholderId = await createDoc()
-      }
+      else placeholderId = await createDoc()
     }
-    return { placeholderId }
+    return { docs: snapshot, placeholderId }
   }, [activeId, createDoc, setActiveId])
 
-  const restoreDoc = useCallback(async (doc: Doc) => {
-    await putDoc(doc)
+  const restoreDoc = useCallback(async (docs: Doc[]) => {
+    for (const d of docs) await putDoc(d)
     await refresh()
-    setActiveId(doc.id)
+    // Re-activate the subtree root: the snapshot member whose parent is not
+    // itself part of the snapshot.
+    const snapshotIds = new Set(docs.map((d) => d.id))
+    const root = docs.find((d) => d.parentId === null || !snapshotIds.has(d.parentId)) ?? docs[0]
+    if (root) setActiveId(root.id)
   }, [refresh, setActiveId])
 
   const renameDoc = useCallback(async (id: string, title: string) => {
@@ -166,10 +180,18 @@ export function useDocs(): UseDocsApi {
 
   const importDoc = useCallback((content: string) => createDoc(content), [createDoc])
 
+  const moveDoc = useCallback(async (id: string, parentId: string | null, order: number) => {
+    await storageMoveDoc(id, parentId, order)
+    await refresh()
+  }, [refresh])
+
   const activeDoc = docs.find((d) => d.id === activeId) ?? null
+
+  const tree = useMemo(() => buildTree(docs), [docs])
 
   return {
     docs,
+    tree,
     activeId,
     activeDoc,
     ready,
@@ -181,5 +203,6 @@ export function useDocs(): UseDocsApi {
     restoreDoc,
     renameDoc,
     importDoc,
+    moveDoc,
   }
 }

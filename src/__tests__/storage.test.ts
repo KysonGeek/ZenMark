@@ -1,6 +1,6 @@
 import { openDB } from 'idb'
 import { describe, expect, it } from 'vitest'
-import { DB_NAME, __resetDbForTests, deleteDoc, getDoc, listDocs, putDoc } from '../lib/storage'
+import { DB_NAME, __resetDbForTests, deleteDoc, getDoc, listDocs, moveDoc, putDoc } from '../lib/storage'
 
 describe('storage', () => {
   it('returns empty array when no docs exist', async () => {
@@ -45,6 +45,34 @@ describe('storage', () => {
 
   it('getDoc returns undefined for missing id', async () => {
     expect(await getDoc('nope')).toBeUndefined()
+  })
+})
+
+describe('moveDoc', () => {
+  const base = { content: '', createdAt: 1, updatedAt: 1 }
+
+  it('reorders within a sibling group and renumbers densely', async () => {
+    await putDoc({ id: 'a', title: 'A', parentId: null, order: 0, ...base })
+    await putDoc({ id: 'b', title: 'B', parentId: null, order: 1, ...base })
+    await putDoc({ id: 'c', title: 'C', parentId: null, order: 2, ...base })
+    // Drop c before b: parent unchanged, fractional order 0.5.
+    await moveDoc('c', null, 0.5)
+    const order = Object.fromEntries((await listDocs()).map((d) => [d.id, d.order]))
+    expect(order).toEqual({ a: 0, c: 1, b: 2 })
+  })
+
+  it('reparents a doc and gives it the requested order', async () => {
+    await putDoc({ id: 'p', title: 'P', parentId: null, order: 0, ...base })
+    await putDoc({ id: 'q', title: 'Q', parentId: null, order: 1, ...base })
+    await moveDoc('q', 'p', 0)
+    const q = await getDoc('q')
+    expect(q?.parentId).toBe('p')
+    expect(q?.order).toBe(0)
+  })
+
+  it('is a no-op for a missing id', async () => {
+    await moveDoc('ghost', null, 0)
+    expect(await listDocs()).toEqual([])
   })
 })
 

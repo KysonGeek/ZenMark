@@ -87,3 +87,35 @@ export async function deleteDoc(id: string): Promise<void> {
   const db = await getDb()
   await db.delete('documents', id)
 }
+
+// Renumber a sibling group to a dense 0,1,2,… sequence (sorted by current
+// order). Keeps fractional insertion orders from accumulating.
+async function renumberSiblings(
+  db: IDBPDatabase<MarkraDB>,
+  parentId: string | null,
+): Promise<void> {
+  const all = await db.getAll('documents')
+  const siblings = all
+    .filter((d) => d.parentId === parentId)
+    .sort((a, b) => a.order - b.order)
+  for (let i = 0; i < siblings.length; i++) {
+    if (siblings[i].order !== i) {
+      await db.put('documents', { ...siblings[i], order: i })
+    }
+  }
+}
+
+// Move a doc to a new parent/order. `newOrder` may be fractional; the target
+// sibling group is renumbered to dense integers afterwards. Does NOT bump
+// updatedAt — moves should not disturb recency-based lists.
+export async function moveDoc(
+  id: string,
+  newParentId: string | null,
+  newOrder: number,
+): Promise<void> {
+  const db = await getDb()
+  const doc = await db.get('documents', id)
+  if (!doc) return
+  await db.put('documents', { ...doc, parentId: newParentId, order: newOrder })
+  await renumberSiblings(db, newParentId)
+}

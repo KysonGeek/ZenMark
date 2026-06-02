@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { TreeNode as TreeNodeData, DropPosition } from '../lib/tree'
 
 export interface TreeNodeProps {
@@ -42,6 +42,16 @@ export function TreeNode(props: TreeNodeProps) {
   const isEditing = editingId === doc.id
   const isActive = activeId === doc.id
   const [draft, setDraft] = useState(doc.title)
+  const committed = useRef(false)
+  // On entering edit mode, sync the draft from the current title and arm the
+  // blur-commit guard. Prevents Enter/Escape from double-firing onRename when
+  // the input unmounts and emits a trailing blur.
+  useEffect(() => {
+    if (isEditing) {
+      setDraft(doc.title)
+      committed.current = false
+    }
+  }, [isEditing, doc.title])
 
   const dropClass =
     dropTarget?.id === doc.id ? ` drop-${dropTarget.position}` : ''
@@ -53,7 +63,7 @@ export function TreeNode(props: TreeNodeProps) {
         style={{ paddingLeft: 8 + depth * 14 }}
         draggable={!isEditing}
         onClick={() => !isEditing && onSelect(doc.id)}
-        onDoubleClick={() => { setDraft(doc.title); onStartEdit(doc.id) }}
+        onDoubleClick={() => onStartEdit(doc.id)}
         title={isEditing ? undefined : 'Double-click to rename'}
         onDragStart={(e) => { e.stopPropagation(); onDragStartNode(doc.id) }}
         onDragOver={(e) => {
@@ -66,6 +76,7 @@ export function TreeNode(props: TreeNodeProps) {
         <button
           className={`tree-toggle${hasChildren ? '' : ' invisible'}`}
           aria-label={isCollapsed ? 'Expand' : 'Collapse'}
+          aria-hidden={!hasChildren}
           onClick={(e) => { e.stopPropagation(); onToggleCollapse(doc.id) }}
         >
           {hasChildren ? (isCollapsed ? '▸' : '▾') : '·'}
@@ -80,10 +91,10 @@ export function TreeNode(props: TreeNodeProps) {
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => setDraft(e.target.value)}
             onClick={(e) => e.stopPropagation()}
-            onBlur={() => onRename(doc.id, draft)}
+            onBlur={() => { if (!committed.current) onRename(doc.id, draft) }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); onRename(doc.id, draft) }
-              else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit() }
+              if (e.key === 'Enter') { e.preventDefault(); committed.current = true; onRename(doc.id, draft) }
+              else if (e.key === 'Escape') { e.preventDefault(); committed.current = true; onCancelEdit() }
             }}
           />
         ) : (

@@ -42,10 +42,10 @@ function getDb() {
           // default ordering (updatedAt desc) as the initial root order.
           const store = tx.objectStore('documents')
           const all = await store.getAll()
-          all.sort((a, b) => b.updatedAt - a.updatedAt)
+          all.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
           let i = 0
           for (const doc of all) {
-            await store.put({ ...doc, parentId: doc.parentId ?? null, order: i++ })
+            await store.put({ ...doc, parentId: null, order: i++ })
           }
         }
       },

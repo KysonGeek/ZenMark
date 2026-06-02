@@ -24,10 +24,11 @@ export function buildTree(docs: Doc[]): TreeNode[] {
       .map((d) => ({ doc: d, children: build(d.id) }))
 
   const roots = build(null)
-  for (const d of docs) {
-    if (d.parentId !== null && !ids.has(d.parentId)) {
-      roots.push({ doc: d, children: build(d.id) })
-    }
+  const orphans = docs
+    .filter((d) => d.parentId !== null && !ids.has(d.parentId))
+    .sort((a, b) => a.order - b.order)
+  for (const d of orphans) {
+    roots.push({ doc: d, children: build(d.id) })
   }
   return roots
 }
@@ -43,9 +44,12 @@ export function collectSubtreeIds(docs: Doc[], rootId: string): string[] {
     }
   }
   const result: string[] = []
+  const visited = new Set<string>()
   const stack = [rootId]
   while (stack.length > 0) {
     const id = stack.pop()!
+    if (visited.has(id)) continue
+    visited.add(id)
     result.push(id)
     for (const child of childrenOf.get(id) ?? []) stack.push(child)
   }

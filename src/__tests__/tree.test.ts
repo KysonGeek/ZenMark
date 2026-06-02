@@ -25,6 +25,17 @@ describe('buildTree', () => {
     const tree = buildTree(docs)
     expect(tree.map((n) => n.doc.id)).toEqual(['orphan'])
   })
+
+  it('appends multiple orphans sorted by order', () => {
+    const docs = [
+      doc('normal', null, 0),
+      doc('o1', 'ghost', 1),
+      doc('o2', 'ghost', 0),
+    ]
+    const tree = buildTree(docs)
+    // normal root first, then orphans sorted by order (o2 order=0, o1 order=1)
+    expect(tree.map((n) => n.doc.id)).toEqual(['normal', 'o2', 'o1'])
+  })
 })
 
 describe('collectSubtreeIds', () => {
@@ -36,6 +47,13 @@ describe('collectSubtreeIds', () => {
       doc('other', null, 1),
     ]
     expect(collectSubtreeIds(docs, 'root').sort()).toEqual(['child', 'grand', 'root'])
+  })
+
+  it('terminates and returns each id once when there is a parentId cycle', () => {
+    // x is parent of y, y is parent of x — a two-node cycle
+    const docs = [doc('x', 'y', 0), doc('y', 'x', 0)]
+    const result = collectSubtreeIds(docs, 'x')
+    expect(result.sort()).toEqual(['x', 'y'])
   })
 })
 

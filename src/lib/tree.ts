@@ -63,6 +63,13 @@ export function nextOrder(docs: Doc[], parentId: string | null): number {
   return Math.max(...siblings.map((d) => d.order)) + 1
 }
 
+// Given a subtree snapshot (a doc plus its descendants), return its root — the
+// member whose parent is null or lies outside the snapshot. undefined if empty.
+export function findSubtreeRoot(docs: Doc[]): Doc | undefined {
+  const ids = new Set(docs.map((d) => d.id))
+  return docs.find((d) => d.parentId === null || !ids.has(d.parentId)) ?? docs[0]
+}
+
 export type DropPosition = 'before' | 'after' | 'into'
 
 // Translate a drop gesture into a (parentId, order) for storage.moveDoc.

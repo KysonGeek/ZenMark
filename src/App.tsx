@@ -8,6 +8,7 @@ import { SourceEditor, type SourceEditorHandle } from './components/SourceEditor
 import { StatusBar } from './components/StatusBar'
 import { Toast } from './components/Toast'
 import type { Doc } from './lib/storage'
+import { findSubtreeRoot } from './lib/tree'
 import { useDocs } from './hooks/useDocs'
 import { useShortcuts } from './hooks/useShortcuts'
 import { downloadMarkdown } from './lib/ioFile'
@@ -296,8 +297,7 @@ export default function App() {
         />
       )}
       {pendingDelete && (() => {
-        const ids = new Set(pendingDelete.docs.map((d) => d.id))
-        const root = pendingDelete.docs.find((d) => d.parentId === null || !ids.has(d.parentId)) ?? pendingDelete.docs[0]
+        const root = findSubtreeRoot(pendingDelete.docs)!
         const extra = pendingDelete.docs.length - 1
         const message = extra > 0
           ? `Deleted "${root.title}" and ${extra} sub-page${extra === 1 ? '' : 's'}`

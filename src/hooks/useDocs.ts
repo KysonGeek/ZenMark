@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { deriveTitle } from '../lib/deriveTitle'
 import { type Doc, deleteDoc, getDoc, listDocs, putDoc, moveDoc as storageMoveDoc } from '../lib/storage'
-import { buildTree, collectSubtreeIds, nextOrder, type TreeNode } from '../lib/tree'
+import { buildTree, collectSubtreeIds, findSubtreeRoot, nextOrder, type TreeNode } from '../lib/tree'
 
 const LAST_ID_KEY = 'markra.lastOpenedDocId'
 
@@ -136,6 +136,7 @@ export function useDocs(): UseDocsApi {
 
   const removeDoc = useCallback(async (id: string): Promise<{ docs: Doc[]; placeholderId: string | null }> => {
     const all = await listDocs()
+    if (!all.some((d) => d.id === id)) return { docs: [], placeholderId: null }
     const ids = new Set(collectSubtreeIds(all, id))
     const snapshot = all.filter((d) => ids.has(d.id))
     for (const did of ids) await deleteDoc(did)
@@ -154,10 +155,8 @@ export function useDocs(): UseDocsApi {
   const restoreDoc = useCallback(async (snapshot: Doc[]) => {
     for (const d of snapshot) await putDoc(d)
     await refresh()
-    // Re-activate the subtree root: the snapshot member whose parent is not
-    // itself part of the snapshot.
-    const snapshotIds = new Set(snapshot.map((d) => d.id))
-    const root = snapshot.find((d) => d.parentId === null || !snapshotIds.has(d.parentId)) ?? snapshot[0]
+    // Re-activate the subtree root.
+    const root = findSubtreeRoot(snapshot)
     if (root) setActiveId(root.id)
   }, [refresh, setActiveId])
 

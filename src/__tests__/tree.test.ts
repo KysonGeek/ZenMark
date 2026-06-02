@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Doc } from '../lib/storage'
-import { buildTree, collectSubtreeIds, computeMoveTarget, nextOrder } from '../lib/tree'
+import { buildTree, collectSubtreeIds, computeMoveTarget, findSubtreeRoot, nextOrder } from '../lib/tree'
 
 function doc(id: string, parentId: string | null, order: number): Doc {
   return { id, title: id, content: '', createdAt: 0, updatedAt: 0, parentId, order }
@@ -110,5 +110,19 @@ describe('computeMoveTarget', () => {
 
   it('rejects dropping a node before its own child (cycle via before)', () => {
     expect(computeMoveTarget(docs, 'a', 'a1', 'before')).toBeNull()
+  })
+})
+
+describe('findSubtreeRoot', () => {
+  it('finds the member whose parent is outside the snapshot', () => {
+    const snap = [doc('child', 'root', 0), doc('grand', 'child', 0)] // 'root' not in snapshot
+    expect(findSubtreeRoot(snap)?.id).toBe('child')
+  })
+  it('finds the null-parent root', () => {
+    const snap = [doc('r', null, 0), doc('c', 'r', 0)]
+    expect(findSubtreeRoot(snap)?.id).toBe('r')
+  })
+  it('returns undefined for empty input', () => {
+    expect(findSubtreeRoot([])).toBeUndefined()
   })
 })

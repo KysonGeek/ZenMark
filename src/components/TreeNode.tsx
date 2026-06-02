@@ -77,6 +77,7 @@ export function TreeNode(props: TreeNodeProps) {
           className={`tree-toggle${hasChildren ? '' : ' invisible'}`}
           aria-label={isCollapsed ? 'Expand' : 'Collapse'}
           aria-hidden={!hasChildren}
+          tabIndex={hasChildren ? undefined : -1}
           onClick={(e) => { e.stopPropagation(); onToggleCollapse(doc.id) }}
         >
           {hasChildren ? (isCollapsed ? '▸' : '▾') : '·'}

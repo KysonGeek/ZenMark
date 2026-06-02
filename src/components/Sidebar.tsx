@@ -144,7 +144,11 @@ export function Sidebar(props: Props) {
               onRename={commitRename}
               onCancelEdit={() => setEditingId(null)}
               onDragStartNode={setDraggedId}
-              onDragOverNode={(id, position) => setDropTarget({ id, position })}
+              onDragOverNode={(id, position) =>
+                setDropTarget((prev) =>
+                  prev && prev.id === id && prev.position === position ? prev : { id, position }
+                )
+              }
               onDropNode={handleDrop}
               onDragEndNode={() => { setDraggedId(null); setDropTarget(null) }}
             />

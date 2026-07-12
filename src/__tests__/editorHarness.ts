@@ -70,6 +70,8 @@ export interface EditorHarness {
   caretDepth(): number
   /** Insert a hardbreak node at the current selection (mimics Shift+Enter). */
   insertHardbreak(): void
+  /** Run the plugins' handleKeyDown chain for a plain Enter keypress. */
+  pressEnter(): boolean
   /** Insert literal text at the current selection (no input rules fire). */
   type(text: string): void
   /** Find the doc position of the Nth top-level block (0-based). */
@@ -169,6 +171,14 @@ export async function mountEditor(initialMarkdown: string): Promise<EditorHarnes
     view.dispatch(view.state.tr.insertText(text))
   }
 
+  // Route Enter through the same handleKeyDown chain the browser uses, so
+  // whichever plugin claims it first (activeSourceBlock, Milkdown's
+  // enter-confirms-input-rules plugin, keymaps) behaves as in production.
+  const pressEnter = () => {
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    return view.someProp('handleKeyDown', (f) => f(view, event)) ?? false
+  }
+
   return {
     crepe,
     view,
@@ -178,6 +188,7 @@ export async function mountEditor(initialMarkdown: string): Promise<EditorHarnes
     caretInText,
     caretDepth,
     insertHardbreak,
+    pressEnter,
     type,
     topBlockPos,
     focus: () => {

@@ -33,6 +33,10 @@ interface ActiveSourceState {
   // you'd get from $from.before($from.depth)). null = no block is in source
   // mode right now.
   activePos: number | null
+  // Set by the Enter handler on the transaction meta to tell
+  // appendTransaction the doc is already in its final shape (rendered prefix
+  // + plain source remainder at activePos) — no swap needed.
+  sourced?: boolean
 }
 
 const KEY = new PluginKey<ActiveSourceState>('zenmark-active-source')
@@ -169,9 +173,26 @@ export const activeSourceBlock = $prose((ctx) => {
       },
     },
 
-    appendTransaction(_trs, oldState, newState) {
+    appendTransaction(trs, oldState, newState) {
       const prevPos = KEY.getState(oldState)?.activePos ?? null
       const nextPos = KEY.getState(newState)?.activePos ?? null
+
+      // The Enter handler already left the doc in its final shape (rendered
+      // prefix + plain source remainder) — swapping would only re-serialize
+      // the remainder (escaping a leading marker into "\#…") and move the
+      // caret away from the split point.
+      if (trs.some((tr) => (tr.getMeta(KEY) as ActiveSourceState | undefined)?.sourced)) {
+        return null
+      }
+
+      // Undo/redo restores doc regions exactly as they were when recorded,
+      // and recorded edits happen in source mode — so when history moves the
+      // caret into a block, that block already holds raw source text.
+      // Re-serializing it (step 2 below) would double-escape it
+      // ("# hello" → "\# hello"). Step 1 must still run: the previously
+      // active block was NOT restored by the undo and still needs rendering
+      // back to rich form.
+      const fromHistory = trs.some((tr) => tr.getMeta('history$'))
 
       // An inputRule can upgrade the active block in place without moving it:
       // typing "# " on a line turns the source paragraph into a heading at the
@@ -231,7 +252,7 @@ export const activeSourceBlock = $prose((ctx) => {
 
       // 2) Replace the new active block with a plain paragraph that holds
       //    its markdown source.
-      if (workingNext != null) {
+      if (workingNext != null && !fromHistory) {
         const node = tr.doc.nodeAt(workingNext)
         if (node && SUPPORTED_BLOCKS.has(node.type.name)) {
           let md = serializeBlock(serializer, schema, node)
@@ -262,6 +283,64 @@ export const activeSourceBlock = $prose((ctx) => {
     },
 
     props: {
+      // A source line is plain text, so Enter must split it at the caret like
+      // a text editor would. Left to Milkdown, Enter is fed to the input
+      // rules as rule-confirming input: with the caret right after the "#"
+      // in "# hello", the heading rule fires, swallows the marker, and keeps
+      // the rest (" hello", leading space intact) as heading content — which
+      // serializes to "# &#x20;hello". This plugin is registered before the
+      // input-rules plugin, so returning true here preempts that.
+      //
+      // The whole split — render the prefix rich, keep the remainder as a new
+      // source line — happens in this ONE recorded transaction, rather than a
+      // plain splitBlock followed by appendTransaction swaps. The swaps are
+      // unrecorded (addToHistory: false) whole-block replaces, and mapping a
+      // recorded split's inverse through them lands in deleted ranges, so the
+      // undo step gets dropped — Cmd+Z appeared to do nothing. One
+      // self-contained transaction undoes/redoes cleanly.
+      handleKeyDown(view, event) {
+        if (event.key !== 'Enter') return false
+        if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false
+        const ps = KEY.getState(view.state)
+        if (ps?.activePos == null) return false
+        const { selection } = view.state
+        if (!selection.empty) return false
+        const { $from } = selection
+        if ($from.depth !== 1 || $from.before(1) !== ps.activePos) return false
+        const block = $from.parent
+        if (block.type.name !== 'paragraph') return false
+
+        // Hardbreaks count 1 toward parentOffset but '' toward textContent,
+        // so slice via textBetween with '\n' as their text.
+        const offset = $from.parentOffset
+        const before = block.textBetween(0, offset, undefined, '\n')
+        const after = block.textBetween(offset, block.content.size, undefined, '\n')
+
+        // At end of line, a marker-only line means the user is confirming an
+        // input rule ("```" → code block, "$$" → math, "-" → list…). Defer to
+        // Milkdown's enter-confirms-input-rules plugin for those.
+        if (after.length === 0 && RULE_CONFIRM_RE.test(before)) return false
+
+        const schema = ctx.get(schemaCtx)
+        const parser = ctx.get(parserCtx)
+        const rendered = parseLineToBlocks(parser, schema, before)
+        if (!rendered || rendered.childCount === 0) return false
+        const remainder = buildSourceParagraph(schema, after)
+        if (!remainder) return false
+
+        const pos = ps.activePos
+        let tr = view.state.tr.replaceWith(
+          pos,
+          pos + block.nodeSize,
+          rendered.append(Fragment.from(remainder)),
+        )
+        const remainderPos = pos + rendered.size
+        tr = tr.setSelection(TextSelection.create(tr.doc, remainderPos + 1))
+        tr = tr.setMeta(KEY, { activePos: remainderPos, sourced: true })
+        view.dispatch(tr.scrollIntoView())
+        return true
+      },
+
       decorations(state) {
         const ps = KEY.getState(state)
         if (ps?.activePos == null) return null
@@ -289,6 +368,14 @@ export const activeSourceBlock = $prose((ctx) => {
     },
   })
 })
+
+// Lines that Milkdown's input rules would consume when Enter appends its
+// virtual "\n": bare heading markers, blockquote/list markers, code fences
+// (with optional info string), math fences, thematic breaks, table pipes.
+// Enter at the end of such a line is a deliberate rule confirmation and is
+// left to Milkdown; everything else is a plain text-editor line split.
+const RULE_CONFIRM_RE =
+  /^ {0,3}(#{1,6}|>|[-+*]|\d{1,9}[.)]|(?:`{3,}|~{3,})[^`\s]*|\$\$|[-_*](?:[ \t]*[-_*]){2,}|\|.*)[ \t]*$/
 
 // Leading patterns that commonmark would promote a plain paragraph into a
 // different block type on re-parse (heading, blockquote, bullet/ordered list,

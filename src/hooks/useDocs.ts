@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { deriveTitle } from '../lib/deriveTitle'
-import { type Doc, deleteDoc, getDoc, listDocs, putDoc, moveDoc as storageMoveDoc } from '../lib/storage'
+import { type Doc, deleteDocs, getDoc, listDocs, putDoc, moveDoc as storageMoveDoc } from '../lib/storage'
 import { buildTree, collectSubtreeIds, findSubtreeRoot, nextOrder, type TreeNode } from '../lib/tree'
 
 const LAST_ID_KEY = 'markra.lastOpenedDocId'
@@ -59,6 +59,11 @@ export function useDocs(): UseDocsApi {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Mirror of `docs` for synchronous reads inside async callbacks without a
+  // full `listDocs()` round-trip. Kept in sync on every render.
+  const docsRef = useRef<Doc[]>(docs)
+  docsRef.current = docs
+
   const refresh = useCallback(async () => {
     setDocs(await listDocs())
   }, [])
@@ -103,48 +108,56 @@ export function useDocs(): UseDocsApi {
   const createDoc = useCallback(async (content = '# Untitled\n\n', parentId: string | null = null) => {
     const id = crypto.randomUUID()
     const now = Date.now()
-    const all = await listDocs()
-    await putDoc({
+    const doc: Doc = {
       id,
       title: deriveTitle(content),
       content,
       createdAt: now,
       updatedAt: now,
       parentId,
-      order: nextOrder(all, parentId),
-    })
-    await refresh()
+      order: nextOrder(docsRef.current, parentId),
+    }
+    await putDoc(doc)
+    // Insert into state at the front (matches listDocs' updatedAt-desc sort)
+    // instead of re-reading the entire table.
+    setDocs((prev) => [doc, ...prev])
     setActiveId(id)
     return id
-  }, [refresh, setActiveId])
+  }, [setActiveId])
 
   const saveDoc = useCallback(async (id: string, content: string) => {
     // Read fresh from storage so a deleted doc isn't accidentally resurrected.
+    // A single getDoc is far cheaper than the refresh() it replaces (which used
+    // to getAll + sort + trigger a full tree rebuild on every keystroke-save).
     const existing = await getDoc(id)
     if (!existing) return
     // Respect a user-set title: only re-derive from the H1 when the user has
     // not manually renamed this doc.
     const nextTitle = existing.titleOverridden ? existing.title : deriveTitle(content)
-    await putDoc({
-      ...existing,
-      content,
-      title: nextTitle,
-      updatedAt: Date.now(),
+    const next: Doc = { ...existing, content, title: nextTitle, updatedAt: Date.now() }
+    await putDoc(next)
+    // Local update: pull the saved doc to the front (matches listDocs'
+    // updatedAt-desc ordering) without a full re-read.
+    setDocs((prev) => {
+      const idx = prev.findIndex((d) => d.id === id)
+      if (idx < 0) return prev
+      if (idx === 0 && prev[0] === next) return prev
+      const without = prev.slice(0, idx).concat(prev.slice(idx + 1))
+      return [next, ...without]
     })
-    await refresh()
-  }, [refresh])
+  }, [])
 
   const removeDoc = useCallback(async (id: string): Promise<{ docs: Doc[]; placeholderId: string | null }> => {
-    const all = await listDocs()
+    const all = docsRef.current
     if (!all.some((d) => d.id === id)) return { docs: [], placeholderId: null }
     const ids = new Set(collectSubtreeIds(all, id))
     const snapshot = all.filter((d) => ids.has(d.id))
-    for (const did of ids) await deleteDoc(did)
-    const remaining = await listDocs()
-    setDocs(remaining)
+    await deleteDocs(ids)
+    setDocs((prev) => prev.filter((d) => !ids.has(d.id)))
     let placeholderId: string | null = null
     // The active doc may itself be a descendant of the deleted root.
     if (activeId !== null && ids.has(activeId)) {
+      const remaining = all.filter((d) => !ids.has(d.id))
       const next = remaining[0]?.id ?? null
       if (next) setActiveId(next)
       else placeholderId = await createDoc()
@@ -154,11 +167,17 @@ export function useDocs(): UseDocsApi {
 
   const restoreDoc = useCallback(async (snapshot: Doc[]) => {
     for (const d of snapshot) await putDoc(d)
-    await refresh()
+    // Merge snapshot back into state without a full re-read. Dedupes against
+    // any stragglers that somehow still exist in state.
+    setDocs((prev) => {
+      const ids = new Set(snapshot.map((d) => d.id))
+      const kept = prev.filter((d) => !ids.has(d.id))
+      return [...snapshot, ...kept]
+    })
     // Re-activate the subtree root.
     const root = findSubtreeRoot(snapshot)
     if (root) setActiveId(root.id)
-  }, [refresh, setActiveId])
+  }, [setActiveId])
 
   const renameDoc = useCallback(async (id: string, title: string) => {
     const existing = await getDoc(id)
@@ -174,8 +193,8 @@ export function useDocs(): UseDocsApi {
       return
     }
     await putDoc(next)
-    await refresh()
-  }, [refresh])
+    setDocs((prev) => prev.map((d) => (d.id === id ? next : d)))
+  }, [])
 
   const importDoc = useCallback((content: string) => createDoc(content), [createDoc])
 

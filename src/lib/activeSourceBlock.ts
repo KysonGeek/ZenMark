@@ -64,6 +64,15 @@ export function isInSourceMode(state: EditorState): boolean {
   return ps?.activePos != null
 }
 
+/// Document position of the block currently rendered as raw markdown source,
+/// or null if no such block is active. Exposed for callers (e.g.
+/// readPersistableMarkdown) that need to know which block to re-render back
+/// into rich form before serializing — without dispatching a tr (and so
+/// without disturbing ProseMirror's auto selection-remap churn).
+export function getActiveSourcePos(state: EditorState): number | null {
+  return KEY.getState(state)?.activePos ?? null
+}
+
 /// Force the currently-active source block (if any) back into rendered mode
 /// without moving the user's selection elsewhere first. Used on blur and
 /// before unmount so we never persist half-typed markdown like `\# foo`.
@@ -331,7 +340,11 @@ function serializeBlock(
   }
 }
 
-function parseLineToBlocks(
+/// Render a source-line back into its rich-block Fragment by parsing it as
+/// markdown. Exposed so callers that need a *snapshot* of the rendered doc
+/// (e.g. readPersistableMarkdown) can build the Fragment without dispatching
+/// a transaction into the live editor.
+export function parseLineToBlocks(
   parser: (text: string) => PMNode,
   schema: Schema,
   text: string,

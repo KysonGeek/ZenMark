@@ -88,6 +88,16 @@ export async function deleteDoc(id: string): Promise<void> {
   await db.delete('documents', id)
 }
 
+// Delete many docs in a single readwrite transaction. For subtree deletes this
+// is dramatically faster than awaiting `deleteDoc` in a loop (each await is
+// its own transaction with its own microtask round-trip + flush).
+export async function deleteDocs(ids: Iterable<string>): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('documents', 'readwrite')
+  await Promise.all([...ids].map((id) => tx.store.delete(id)))
+  await tx.done
+}
+
 // Renumber a sibling group to a dense 0,1,2,… sequence (sorted by current
 // order). Keeps fractional insertion orders from accumulating.
 async function renumberSiblings(

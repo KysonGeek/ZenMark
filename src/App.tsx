@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Editor, type EditorHandle } from './components/Editor'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type EditorHandle } from './components/Editor'
 import { OnboardingCard } from './components/OnboardingCard'
 import { Outline } from './components/Outline'
 import { QuickOpen } from './components/QuickOpen'
@@ -7,6 +7,12 @@ import { Sidebar } from './components/Sidebar'
 import { SourceEditor, type SourceEditorHandle } from './components/SourceEditor'
 import { StatusBar } from './components/StatusBar'
 import { Toast } from './components/Toast'
+
+// Milkdown is the dominant chunk (~1 MB); lazy-load it so the first paint
+// only ships the sidebar + shell. SourceEditor (plain textarea) and QuickOpen
+// stay eager — they're tiny and ⌘/ / ⌘P should respond instantly even on a
+// cold load.
+const Editor = lazy(() => import('./components/Editor').then((m) => ({ default: m.Editor })))
 import type { Doc } from './lib/storage'
 import { findSubtreeRoot } from './lib/tree'
 import { useDocs } from './hooks/useDocs'
@@ -51,6 +57,12 @@ export default function App() {
   } | null>(null)
   const editorRef = useRef<EditorHandle>(null)
   const sourceEditorRef = useRef<SourceEditorHandle>(null)
+  // Keep the latest docs API in a ref so the global DnD listeners (bound once
+  // on mount) can read it without re-subscribing on every docs state change —
+  // the handlers otherwise churn add/remove on each keystroke that triggers a
+  // refresh.
+  const docsRef = useRef(docs)
+  docsRef.current = docs
 
   const activeDocId = docs.activeDoc?.id
   const activeDocContent = docs.activeDoc?.content
@@ -61,6 +73,7 @@ export default function App() {
   }, [activeDocId, activeDocContent])
 
   const outlineItems = useMemo(() => parseOutline(liveContent), [liveContent])
+  const wordCount = useMemo(() => countWords(liveContent), [liveContent])
 
   useEffect(() => {
     const t = getStoredTheme()
@@ -120,7 +133,7 @@ export default function App() {
       for (const f of files) {
         if (!f.name.toLowerCase().endsWith('.md') && f.type !== 'text/markdown') continue
         const content = await f.text()
-        await docs.importDoc(content)
+        await docsRef.current.importDoc(content)
       }
     }
     window.addEventListener('dragover', onDragOver)
@@ -131,7 +144,7 @@ export default function App() {
       window.removeEventListener('dragleave', onDragLeave)
       window.removeEventListener('drop', onDrop)
     }
-  }, [docs])
+  }, [])
 
   const onContentUpdate = useCallback((md: string) => {
     // Only adopt this update if it belongs to the currently active doc. Late
@@ -249,27 +262,33 @@ export default function App() {
       )}
       <main className="editor-pane">
         <div className="editor-root">
-          {mode === 'source' ? (
-            <SourceEditor
-              key={`${docs.activeDoc.id}-src`}
-              ref={sourceEditorRef}
-              docId={docs.activeDoc.id}
-              initialContent={seedContent}
-              onContentUpdate={onContentUpdate}
-              onSave={onSaveDoc}
-            />
-          ) : (
-            <Editor
-              key={`${docs.activeDoc.id}-wyg`}
-              ref={editorRef}
-              docId={docs.activeDoc.id}
-              initialContent={seedContent}
-              onContentUpdate={onContentUpdate}
-              onSave={onSaveDoc}
-              onActiveHeadingChange={setActiveHeading}
-              readOnly={mode === 'read'}
-            />
-          )}
+          <Suspense fallback={
+            <div className="editor-root" style={{ padding: 32, color: 'var(--text-muted)' }}>
+              Loading editor…
+            </div>
+          }>
+            {mode === 'source' ? (
+              <SourceEditor
+                key={`${docs.activeDoc.id}-src`}
+                ref={sourceEditorRef}
+                docId={docs.activeDoc.id}
+                initialContent={seedContent}
+                onContentUpdate={onContentUpdate}
+                onSave={onSaveDoc}
+              />
+            ) : (
+              <Editor
+                key={`${docs.activeDoc.id}-wyg`}
+                ref={editorRef}
+                docId={docs.activeDoc.id}
+                initialContent={seedContent}
+                onContentUpdate={onContentUpdate}
+                onSave={onSaveDoc}
+                onActiveHeadingChange={setActiveHeading}
+                readOnly={mode === 'read'}
+              />
+            )}
+          </Suspense>
         </div>
       </main>
       {mode !== 'source' && (
@@ -281,7 +300,7 @@ export default function App() {
       )}
       <StatusBar
         savedAt={savingAt}
-        wordCount={countWords(docs.activeDoc.content)}
+        wordCount={wordCount}
         theme={theme}
         mode={mode}
         onToggleTheme={onToggleTheme}
